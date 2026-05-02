@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<head>
+<title>Evidence výdajů</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<h1> Evidence výdajů</h1>
+
+<section class="tabulka-sekce">
+<form class="formulare-sekce">
+
+<label class="tabulka">
+<input id="nazev-vydaje" type="text" name="nazev-vydaje" placeholder="Název výdaje">
+</label>
+
+<label class="tabulka">
+<input id="castka" type="number" name="castka" placeholder="Částka">
+</label>
+
+<select id="kategorie" class="tabulka">
+    <option value="benzin">Benzín</option>
+    <option value="jidlo">Jídlo</option>
+    <option value="bydleni">Bydlení</option>
+    <option value="sporeni">Spoření</option>
+    <option value="dovolena">Dovolená</option>
+</select>
+
+<button id="pridat-btn" type="button" 
+class ="button">Přidat výdaj</button>
+</form>
+</section>
+
+<section class="seznam-sekce">
+<h2>Seznam výdajů:</h2>
+<div id="seznam-vydaju">
+</div>
+</section>
+
+<div class="celkem-box">
+<h2>Celkem utraceno:</h2>
+<p id="celkem">0 Kč</p>
+</div>
+
+
+<script src="script.js"></script>
+</body>
+</html>
