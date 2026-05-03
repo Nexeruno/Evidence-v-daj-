@@ -1,0 +1,117 @@
+:root {
+--pozadi: #F3F6FB;
+--karta: #FFFFFF;
+
+--primarni: #2563EB;
+--primarni-tmava: #1E40AF;
+--primarni-svetla: #DBEAFE;
+
+--uspech: #16A34A;
+--uspech-svetla: #DCFCE7;
+
+--nebezpeci: #DC2626;
+--nebezpeci-tmava: #991B1B;
+--nebezpeci-svetla: #FEE2E2;
+
+--text: #111827;
+--text-jemny: #6B7280;
+--ramecek: #E5E7EB;
+
+--stin: 0 8px 24px rgba(15 ,23 ,42 ,0.08);
+}
+
+body {
+    background-color: var(--pozadi);
+    color: var(--text);
+}
+
+
+main {
+max-width: 800px;
+margin: 0 auto;
+padding: 20px;
+}
+
+.formulare-sekce
+.celkem-box
+.seznam-sekce {
+background-color: var(--karta);
+border: 1px solid var(--ramecek);
+box-shadow: var(--stin);
+padding: 20px;
+border-radius: 10px;
+margin-bottom: 20px;
+}
+
+.button {
+background-color: var(--primarni);
+color: white;
+}
+
+.button:hover {
+background-color: var(--primarni-tmava);
+}
+
+.vydaj-polozka {
+background-color: var(--karta);
+display:flex;
+justify-content: space-between;
+align-items: center;
+gap: 12px;
+padding: 12px;
+border: 1px solid var(--ramecek);
+border-radius: 8px;
+margin-bottom: 10px;
+}
+
+.vydaj-nazev {
+font-weight: bold;
+font-size: 18px;
+flex: 1;
+color: var(--text);
+}
+
+.vydaj-kategorie {
+font-size: 14px;
+color: var(--text-jemny);
+background-color: var(--primarni-svetla);
+padding: 4px;
+border-radius: 4px;
+}
+
+.vydaj-castka {
+font-weight: bold;
+font-size: 18px;
+white-space: nowrap;
+color: var(--uspech);
+}
+
+.smazat-btn {
+background-color: var(--nebezpeci-svetla);
+color: var(--nebezpeci);
+    padding: 8px;
+    border: 1px solid var(--nebezpeci);
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: 0.3s ease-in-out;
+}
+
+.smazat-btn:hover {
+background-color: var(--nebezpeci);
+color: white;
+    background-color: var(--nebezpeci);
+    color: white;
+    border: 1px solid var(--nebezpeci-tmava);
+    transform: scale(1.1);
+}
+
+.tabulka {
+    margin: 6px;
+}
+
+@media (max-width: 600px) {
+    .tabulka {
+        margin: 12px;
+    }
+}

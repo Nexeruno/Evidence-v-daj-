@@ -5,13 +5,27 @@ const pridatBtn = document.getElementById("pridat-btn");
 const celkemText = document.getElementById("celkem");
 const vydajeList = document.getElementById("seznam-vydaju");
 
+
+
 let vydaje = [];
 
 function vykresliVydaje () {
 vydajeList.innerHTML = "";
 
 vydaje.forEach(function (vydaj, index) {
-    vydajeList.innerHTML += "<p>" + vydaj.nazev +
+    vydajeList.innerHTML += "<div class='vydaj-polozka'>" 
+    + "<span class='vydaj-nazev'>" 
+    + vydaj.nazev + "</span>" 
+    + "<span class='vydaj-kategorie'>" 
+    + vydaj.kategorie + "</span>"
+    + "<strong class='vydaj-castka'>"
+    + vydaj.castka + " Kč</strong>" 
+    + "<button class='smazat-btn' data-index='" 
+    + index 
+    + "'>Smazat</button>" 
+    + "</div>";
+    
+    vydaj.nazev +
      " | " + vydaj.kategorie + 
      " | " + vydaj.castka + 
      " Kč<button class='smazat-btn' data-index='" + index + "'>Smazat</button></p>";
