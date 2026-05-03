@@ -112,6 +112,31 @@ color: white;
 
 @media (max-width: 600px) {
     .tabulka {
-        margin: 12px;
+        margin: 8px;
     }
+
+.formulare-sekce {
+    display: flex;
+    flex-direction: column;
+}
+
+#pridat-btn {
+width: 50%;
+}
+#kategorie {
+width: 48%;
+}
+
+
+.celkem-box h2 {
+
+    font-size: 16px;
+}
+
+.seznam-sekce h2 {
+    font-size: 16px;
+}
+ h1 {
+    font-size: 20px;
+}
 }
