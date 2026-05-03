@@ -111,16 +111,26 @@ color: white;
 }
 
 @media (max-width: 600px) {
+    
     .tabulka {
-        margin: 8px;
+        margin: 8px 0;
         width: 100%;
         box-sizing: border-box;
     }
 
-.formulare-sekce {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
+.formulare-sekce label,
+.formulare-sekce input {
+    width: 100%;
+    box-sizing: border-box;
+    margin-bottom: 12px;
+}
+
+.formulare-sekce select,
+.formulare-sekce button {
+    width: 100%;
+    box-sizing: border-box;
+    margin-bottom: 12px;
+    margin-top: -6px;
 }
 
 #pridat-btn {
@@ -143,5 +153,9 @@ box-sizing: border-box;
 }
  h1 {
     font-size: 20px;
+ }
+    .vydaj-polozka {
+    flex-wrap: wrap;
 }
+
 }
