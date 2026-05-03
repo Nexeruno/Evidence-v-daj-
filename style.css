@@ -46,6 +46,8 @@ margin-bottom: 20px;
 .button {
 background-color: var(--primarni);
 color: white;
+border-radius: 6px;
+border: none;
 }
 
 .button:hover {
@@ -112,6 +114,10 @@ color: white;
 
 @media (max-width: 600px) {
     
+main {
+    padding: 10px;
+}
+
     .tabulka {
         margin: 8px 0;
         width: 100%;
