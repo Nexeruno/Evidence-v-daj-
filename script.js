@@ -7,7 +7,7 @@ const celkemText = document.getElementById("celkem");
 const vydajeList = document.getElementById("seznam-vydaju");
 const filtrKategorie = document.getElementById("filtr-kategorie");
 const smazatVseBtn = document.getElementById("smazat-vse-btn");
-
+const datumVydajeInput = document.getElementById("datum-vydaje");
 
 
 let vydaje = [];
@@ -31,6 +31,8 @@ necoZobrazeno = true;
     + vydaj.nazev + "</span>" 
     + "<span class='vydaj-kategorie'>" 
     + vydaj.kategorie + "</span>"
+    + "<span class='vydaj-datum'>"
+    + formatujDatum(vydaj.datum) + "</span>"
     + "<strong class='vydaj-castka'>"
     + vydaj.castka + " Kč</strong>" 
     + "<button class='smazat-btn' data-index='" 
@@ -75,6 +77,7 @@ function vycistiVydaje () {
     nazevInput.value = "";
     castkaInput.value = "";
     kategorieSelect.value = "benzin";
+    datumVydajeInput.value = "";
 }
 
 function ulozVydaje () {
@@ -91,12 +94,23 @@ function nactiVydaje () {
     }
 }
 
+function formatujDatum (datum) {
+if (datum === "") {
+    return "";
+}
+let casti = datum.split("-");
+return casti[2] + "." + casti[1] + "." + casti[0];
+}
+
+
+
 
 pridatBtn.addEventListener("click", function () {
 let nazev = nazevInput.value;
 let castka = 
 Number(castkaInput.value);
 let kategorie = kategorieSelect.value;
+let datum = datumVydajeInput.value;
 
 if (nazev.trim() === "") {
     alert("Název výdaje je povinny");
@@ -110,7 +124,8 @@ if (castka <= 0) {
 let vydaj = { 
     nazev: nazev,
     castka: castka,
-    kategorie: kategorie
+    kategorie: kategorie,
+    datum: datum
 };
 vydaje.push(vydaj);
 ulozVydaje();
@@ -145,7 +160,7 @@ const celkemPrijmyText = document.getElementById("celkem-prijmy");
 const prijmyList = document.getElementById("seznam-prijmu");
 const filtrKategoriePrijmy = document.getElementById("filtr-kategorie-prijmy");
 const smazatVsePrijmyBtn = document.getElementById("smazat-vse-prijmy-btn");
-
+const datumPrijmuInput = document.getElementById("datum-prijmu");
 let prijmy = [];
 
 function vykresliPrijmy () {
@@ -167,6 +182,8 @@ prijmyList.innerHTML += "<div class='prijem-polozka'>"
     + prijem.nazev + "</span>" 
     + "<span class='prijem-kategorie'>" 
     + prijem.kategorie + "</span>"
+    + "<span class='prijem-datum'>" 
+    + formatujDatum(prijem.datum) + "</span>"
     + "<strong class='prijem-castka'>"
     + prijem.castka + " Kč</strong>" 
     + "<button class='smazat-btn-prijem' data-index='" 
@@ -203,6 +220,7 @@ function vycistiPrijmy () {
     nazevInput.value = "";
     castkaInput.value = "";
     kategoriePrijmuSelect.value = "prace";
+    datumPrijmuInput.value = "";
 }
 
 function ulozPrijmy () {
@@ -219,11 +237,22 @@ function nactiPrijmy () {
     }
 }
 
+function formatujDatumPrijmu (datum) {
+if (datum === "") {
+    return "";
+}
+let casti = datum.split("-");
+return casti[2] + "." + casti[1] + "." + casti[0];
+}
+
+
+
 pridatPrijemBtn.addEventListener("click", function () {
 let nazev = nazevPrijmuInput.value;
 let castka = 
 Number(castkaPrijmuInput.value);
 let kategorie = kategoriePrijmuSelect.value;
+let datum = datumPrijmuInput.value;
 
 if (nazev.trim() === "") {
     alert("Název příjmů je povinny");
@@ -237,7 +266,8 @@ if (castka <= 0) {
 let prijem = {
     nazev: nazev,
     castka: castka,
-    kategorie: kategorie
+    kategorie: kategorie,
+    datum: datum
 };
 
 prijmy.push(prijem);
@@ -290,8 +320,20 @@ prijmyCelkem.textContent = " Příjmy celkem: "
 + soucetPrijmu + " Kč";
 vydajeCelkem.textContent = " Výdaje celkem: " 
 + soucetVydaju + " Kč";
-zustatek.textContent = " Zustatek: " 
+zustatek.textContent = " Zůstatek: " 
 + vysledek + " Kč";
+
+zustatek.classList.remove("zustatek-plus", "zustatek-minus", 
+    "zustatek-nula");
+
+
+if (vysledek > 0) {
+    zustatek.classList.add("zustatek-plus");
+} else if (vysledek < 0) {
+    zustatek.classList.add("zustatek-minus");
+} else {
+    zustatek.classList.add("zustatek-nula");
+}
 }
 
 

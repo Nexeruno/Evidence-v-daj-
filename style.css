@@ -93,6 +93,17 @@ flex: 1;
 color: var(--text);
 }
 
+.vydaj-datum {
+font-size: 14px;
+color: var(--text-jemny);
+}
+
+.prijem-datum {
+font-size: 14px;
+color: var(--text-jemny);
+}
+
+
 .vydaj-kategorie {
 font-size: 14px;
 color: var(--text-jemny);
@@ -232,6 +243,18 @@ background-color: var(--primarni-tmava);
 
 #celkem {
     font-weight: bold;
+}
+
+.zustatek-plus {
+    color: var(--uspech);
+}
+
+.zustatek-minus {
+    color: var(--nebezpeci);
+}
+
+.zustatek-nula {
+    color: var(--text-jemny);
 }
 
 @media (max-width: 600px) {

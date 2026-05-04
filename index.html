@@ -21,6 +21,8 @@
 <input id="castka-prijmu" type="number" name="castka" placeholder="Částka">
 </label>
 
+<input type="date" id="datum-prijmu" class="tabulka-prijmu">
+
 <select id="kategorie-prijmu" class="tabulka-prijmu">
     <option value="prace">Práce</option>
     <option value="brigada">Brigáda</option>
@@ -77,12 +79,14 @@ Vymazat Vše
 <input id="castka" type="number" name="castka" placeholder="Částka">
 </label>
 
+<input type="date" id="datum-vydaje" class="tabulka">
+
 <select id="kategorie" class="tabulka">
-    <option value="benzin">Benzín</option>
+    <option value="palivo">Palivo</option>
     <option value="jidlo">Jídlo</option>
     <option value="bydleni">Bydlení</option>
     <option value="sporeni">Spoření</option>
-    <option value="dovolena">Dovolená</option>
+    <option value="ostatni">Ostatní</option>
 </select>
 
 <button id="pridat-btn" type="button" 
@@ -100,11 +104,11 @@ class ="button">Přidat výdaj</button>
     Filtrovat podle kategorie:
     <select id="filtr-kategorie">
 <option value="vse">Vše</option>
-<option value="benzin">Benzín</option>
+<option value="palivo">Palivo</option>
 <option value="jidlo">Jídlo</option>
 <option value="bydleni">Bydlení</option>
 <option value="sporeni">Spoření</option>
-<option value="dovolena">Dovolená</option>
+<option value="ostatni">Ostatní</option>
     </select>
 </label>
 
