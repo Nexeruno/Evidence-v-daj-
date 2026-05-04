@@ -320,9 +320,16 @@ h2 {
  h1 {
     font-size: 20px;
  }
-    .vydaj-polozka {
+    .vydaj-nazev {
     flex-wrap: wrap;
+    font-size: 12px;
 }
+
+.prijem-nazev {
+    flex-wrap: wrap;
+    font-size: 12px;
+}
+
 #celkem {
     font-size: 18px;
     font-weight: bold;
