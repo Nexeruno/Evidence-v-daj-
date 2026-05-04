@@ -262,12 +262,32 @@ background-color: var(--primarni-tmava);
 main {
     padding: 10px;
 }
-
     .tabulka {
         margin: 8px 0;
         width: 100%;
         box-sizing: border-box;
     }
+
+    .tabulka-prijmu {
+        margin: 8px 0;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+.formulare-prijmu label,
+.formulare-prijmu input {
+    width: 100%;
+    box-sizing: border-box;
+    margin-bottom: 12px;
+}
+
+.formulare-prijmu select,
+.formulare-prijmu button {
+    width: 100%;
+    box-sizing: border-box;
+    margin-bottom: 12px;
+    margin-top: -6px;
+}
 
 .formulare-sekce label,
 .formulare-sekce input {
@@ -294,13 +314,8 @@ box-sizing: border-box;
 }
 
 
-.celkem-box h2 {
-
-    font-size: 16px;
-}
-
-.seznam-sekce h2 {
-    font-size: 16px;
+h2 {
+    font-size: 18px;
 }
  h1 {
     font-size: 20px;
@@ -311,5 +326,10 @@ box-sizing: border-box;
 #celkem {
     font-size: 18px;
     font-weight: bold;
+}
+#celkem-prijmy {
+    font-size: 18px;
+    font-weight: bold;
+
 }
 }
