@@ -6,44 +6,59 @@ const pridatBtn = document.getElementById("pridat-btn");
 const celkemText = document.getElementById("celkem");
 const vydajeList = document.getElementById("seznam-vydaju");
 const filtrKategorie = document.getElementById("filtr-kategorie");
+const filtrMesicVydaje = document.getElementById("filtr-mesic-vydaje");
 const smazatVseBtn = document.getElementById("smazat-vse-btn");
 const datumVydajeInput = document.getElementById("datum-vydaje");
 
 
 let vydaje = [];
 
+function getMesicZDatumu(datum) {
+if (datum === "") {
+    return "";
+}
+let casti = datum.split("-");
+return casti[1];
+}
+
 function vykresliVydaje () {
 vydajeList.innerHTML = "";
 
 let filtr = filtrKategorie.value;
+let filtrMesic = filtrMesicVydaje.value;
 let necoZobrazeno = false;
 
 vydaje.forEach(function (vydaj, index) {
-if(filtr !== "vse" && vydaj.kategorie !== filtr) 
+if(filtr !== "vse" && vydaj.kategorie !== filtr)
+    {
+    return;
+}
+
+if(filtrMesic !== "vse-mesic" && getMesicZDatumu(vydaj.datum) !== filtrMesic)
     {
     return;
 }
 
 necoZobrazeno = true;
 
-    vydajeList.innerHTML += "<div class='vydaj-polozka'>" 
-    + "<span class='vydaj-nazev'>" 
-    + vydaj.nazev + "</span>" 
-    + "<span class='vydaj-kategorie'>" 
+    vydajeList.innerHTML += "<div class='vydaj-polozka'>"
+    + "<span class='vydaj-nazev'>"
+    + vydaj.nazev + "</span>"
+    + "<span class='vydaj-kategorie'>"
     + vydaj.kategorie + "</span>"
     + "<span class='vydaj-datum'>"
     + formatujDatum(vydaj.datum) + "</span>"
     + "<strong class='vydaj-castka'>"
-    + vydaj.castka + " Kč</strong>" 
-    + "<button class='smazat-btn' data-index='" 
-    + index 
-    + "'>Smazat</button>" 
+    + vydaj.castka + " Kč</strong>"
+    + "<button class='smazat-btn' data-index='"
+    + index
+    + "'>Smazat</button>"
     + "</div>";
-    
+
 
     vydaj.nazev +
-     " | " + vydaj.kategorie + 
-     " | " + vydaj.castka + 
+     " | " + vydaj.kategorie +
+     " | " + vydaj.castka +
      " Kč<button class='smazat-btn' data-index='" + index + "'>Smazat</button></p>";
 });
 
@@ -140,6 +155,10 @@ filtrKategorie.addEventListener("change", function() {
     vykresliVydaje();
 });
 
+filtrMesicVydaje.addEventListener("change", function() {
+    vykresliVydaje();
+});
+
 smazatVseBtn.addEventListener("click", function() {
     vydaje = [];
     ulozVydaje();
@@ -159,6 +178,7 @@ const pridatPrijemBtn = document.getElementById("pridat-prijem-btn");
 const celkemPrijmyText = document.getElementById("celkem-prijmy");
 const prijmyList = document.getElementById("seznam-prijmu");
 const filtrKategoriePrijmy = document.getElementById("filtr-kategorie-prijmy");
+const filtrMesicPrijmy = document.getElementById("filtr-mesic-prijmy");
 const smazatVsePrijmyBtn = document.getElementById("smazat-vse-prijmy-btn");
 const datumPrijmuInput = document.getElementById("datum-prijmu");
 let prijmy = [];
@@ -166,34 +186,41 @@ let prijmy = [];
 function vykresliPrijmy () {
 
 let filtr = filtrKategoriePrijmy.value;
+let filtrMesic = filtrMesicPrijmy.value;
 let necoZobrazeno = false;
 
 prijmyList.innerHTML = "";
 
 prijmy.forEach(function (prijem, index) {
-if(filtr !== "vse-prijem" && prijem.kategorie !== filtr) 
+if(filtr !== "vse-prijem" && prijem.kategorie !== filtr)
     {
     return;
 }
+
+if(filtrMesic !== "vse-mesic" && getMesicZDatumu(prijem.datum) !== filtrMesic)
+    {
+    return;
+}
+
 necoZobrazeno = true;
 
-prijmyList.innerHTML += "<div class='prijem-polozka'>" 
-    + "<span class='prijem-nazev'>" 
-    + prijem.nazev + "</span>" 
-    + "<span class='prijem-kategorie'>" 
+prijmyList.innerHTML += "<div class='prijem-polozka'>"
+    + "<span class='prijem-nazev'>"
+    + prijem.nazev + "</span>"
+    + "<span class='prijem-kategorie'>"
     + prijem.kategorie + "</span>"
-    + "<span class='prijem-datum'>" 
+    + "<span class='prijem-datum'>"
     + formatujDatum(prijem.datum) + "</span>"
     + "<strong class='prijem-castka'>"
-    + prijem.castka + " Kč</strong>" 
-    + "<button class='smazat-btn-prijem' data-index='" 
-    + index 
-    + "'>Smazat</button>" 
+    + prijem.castka + " Kč</strong>"
+    + "<button class='smazat-btn-prijem' data-index='"
+    + index
+    + "'>Smazat</button>"
     + "</div>";
 });
 
 if (necoZobrazeno === false) {
-    prijmyList.innerHTML = "<div class='prazdny-stav-prijem'>Nenalezeno</div>";
+    prijmyList.innerHTML = "<div class='prazdny-stav-prijem'>Nebyly nalezeny záznamy</div>";
 }
 
 document.querySelectorAll(".smazat-btn-prijem").forEach(function (smazatBtn) {
@@ -217,8 +244,8 @@ celkemPrijmyText.textContent = celkem + " Kč";
 }
 
 function vycistiPrijmy () {
-    nazevInput.value = "";
-    castkaInput.value = "";
+    nazevPrijmuInput.value = "";
+    castkaPrijmuInput.value = "";
     kategoriePrijmuSelect.value = "prace";
     datumPrijmuInput.value = "";
 }
@@ -280,6 +307,10 @@ vycistiPrijmy();
 
 
 filtrKategoriePrijmy.addEventListener("change", function() {
+    vykresliPrijmy();
+});
+
+filtrMesicPrijmy.addEventListener("change", function() {
     vykresliPrijmy();
 });
 

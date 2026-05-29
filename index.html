@@ -54,6 +54,24 @@ class ="button-prijem">Přidat příjem</button>
     </select>
 </label>
 
+<label>
+    Filtrovat podle měsíce:
+    <select id="filtr-mesic-prijmy">
+<option value="vse-mesic">Vše</option>
+<option value="01">Leden</option>
+<option value="02">Únor</option>
+<option value="03">Březen</option>
+<option value="04">Duben</option>
+<option value="05">Květen</option>
+<option value="06">Červen</option>
+<option value="07">Červenec</option>
+<option value="08">Srpen</option>
+<option value="09">Září</option>
+<option value="10">Říjen</option>
+<option value="11">Listopad</option>
+<option value="12">Prosinec</option>
+    </select>
+</label>
 
 <section class="seznam-prijmu-sekce">
 <h2>Seznam příjmů:</h2>
@@ -82,10 +100,11 @@ Vymazat Vše
 <input type="date" id="datum-vydaje" class="tabulka">
 
 <select id="kategorie" class="tabulka">
-    <option value="palivo">Palivo</option>
+    <option value="doprava">Doprava</option>
     <option value="jidlo">Jídlo</option>
     <option value="bydleni">Bydlení</option>
     <option value="sporeni">Spoření</option>
+    <option value="zabava">Zábava</option>
     <option value="ostatni">Ostatní</option>
 </select>
 
@@ -96,7 +115,7 @@ class ="button">Přidat výdaj</button>
 </section>
 
 <div class="celkem-box">
-<h2>Celkem utraceno:</h2>
+<h2>Celková částka výdajů:</h2>
 <p id="celkem">0 Kč</p>
 </div>
 
@@ -104,11 +123,31 @@ class ="button">Přidat výdaj</button>
     Filtrovat podle kategorie:
     <select id="filtr-kategorie">
 <option value="vse">Vše</option>
-<option value="palivo">Palivo</option>
+<option value="doprava">Doprava</option>
 <option value="jidlo">Jídlo</option>
 <option value="bydleni">Bydlení</option>
 <option value="sporeni">Spoření</option>
+<option value="zabava">Zábava</option>
 <option value="ostatni">Ostatní</option>
+    </select>
+</label>
+
+<label>
+    Filtrovat podle měsíce:
+    <select id="filtr-mesic-vydaje">
+<option value="vse-mesic">Vše</option>
+<option value="01">Leden</option>
+<option value="02">Únor</option>
+<option value="03">Březen</option>
+<option value="04">Duben</option>
+<option value="05">Květen</option>
+<option value="06">Červen</option>
+<option value="07">Červenec</option>
+<option value="08">Srpen</option>
+<option value="09">Září</option>
+<option value="10">Říjen</option>
+<option value="11">Listopad</option>
+<option value="12">Prosinec</option>
     </select>
 </label>
 

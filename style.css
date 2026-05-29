@@ -124,7 +124,7 @@ border-radius: 4px;
 font-weight: bold;
 font-size: 18px;
 white-space: nowrap;
-color: var(--uspech);
+color: var(--nebezpeci);
 }
 
 .prijem-castka {
@@ -237,12 +237,34 @@ border: none;
 background-color: var(--primarni-tmava);
 }
 
+label {
+    display: inline-block;
+    margin-bottom: 16px;
+    margin-right: 20px;
+    font-weight: 500;
+}
+
+label select {
+    margin-left: 8px;
+    padding: 8px;
+    border: 1px solid var(--ramecek);
+    border-radius: 6px;
+    background-color: var(--karta);
+    color: var(--text);
+    cursor: pointer;
+}
+
+label select:hover {
+    border-color: var(--primarni);
+}
+
 #celkem-prijmy {
     font-weight: bold;
 }
 
 #celkem {
     font-weight: bold;
+    color: var(--nebezpeci);
 }
 
 .zustatek-plus {
