@@ -1,67 +1,106 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import {
+  collection, deleteDoc, doc, getDocs,
+  serverTimestamp, updateDoc, increment, writeBatch,
+} from 'firebase/firestore';
+import { auth, db } from './firebase';
+import toast from 'react-hot-toast';
 
-const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+const getUid = () => auth.currentUser?.uid;
 
-export const useAppStore = create(
-  persist(
-    (set) => ({
-      prijmy: [],
-      vydaje: [],
-      filtryPrijem: { kategorie: 'vse-prijem', mesic: 'vse-mesic' },
-      filtrVydaj: { kategorie: 'vse', mesic: 'vse-mesic' },
-      budget: 10000,
+const firestoreWrite = async (fn) => {
+  try {
+    await fn();
+  } catch (err) {
+    console.error('Firestore write error:', err);
+    toast.error('Chyba při ukládání dat');
+    throw err;
+  }
+};
 
-      addPrijem: (data) =>
-        set((state) => ({
-          prijmy: [
-            ...state.prijmy,
-            {
-              id: generateId(),
-              ...data,
-              createdAt: new Date().toISOString(),
-            },
-          ],
-        })),
+export const useAppStore = create((set) => ({
+  prijmy: [],
+  vydaje: [],
+  filtryPrijem: { kategorie: 'vse-prijem', mesic: 'vse-mesic' },
+  filtrVydaj:   { kategorie: 'vse',        mesic: 'vse-mesic' },
 
-      removePrijem: (id) =>
-        set((state) => ({
-          prijmy: state.prijmy.filter((p) => p.id !== id),
-        })),
+  vydajeReady: false,
+  prijmyReady: false,
 
-      addVydaj: (data) =>
-        set((state) => ({
-          vydaje: [
-            ...state.vydaje,
-            {
-              id: generateId(),
-              ...data,
-              createdAt: new Date().toISOString(),
-            },
-          ],
-        })),
+  setVydaje:  (items) => set({ vydaje: items, vydajeReady: true }),
+  setPrijmy:  (items) => set({ prijmy: items, prijmyReady: true }),
+  resetStore: ()      => set({ prijmy: [], vydaje: [], vydajeReady: false, prijmyReady: false }),
 
-      removeVydaj: (id) =>
-        set((state) => ({
-          vydaje: state.vydaje.filter((v) => v.id !== id),
-        })),
-
-      setFiltrPrijem: (filtry) =>
-        set((state) => ({
-          filtryPrijem: { ...state.filtryPrijem, ...filtry },
-        })),
-
-      setFiltrVydaj: (filtry) =>
-        set((state) => ({
-          filtrVydaj: { ...state.filtrVydaj, ...filtry },
-        })),
-
-      setBudget: (amount) => set({ budget: amount }),
-
-      clearAll: () => set({ prijmy: [], vydaje: [] }),
+  // Batch write — add + counter update jsou atomické
+  addVydaj: (data) =>
+    firestoreWrite(async () => {
+      const uid = getUid();
+      if (!uid) return;
+      const batch = writeBatch(db);
+      const newRef = doc(collection(db, 'users', uid, 'vydaje'));
+      batch.set(newRef, { ...data, createdAt: serverTimestamp() });
+      batch.update(doc(db, 'users', uid), { vydajeCount: increment(1) });
+      await batch.commit();
     }),
-    {
-      name: 'evidence-vydaju-store',
-    }
-  )
-);
+
+  removeVydaj: (id) =>
+    firestoreWrite(async () => {
+      const uid = getUid();
+      if (!uid) return;
+      const batch = writeBatch(db);
+      batch.delete(doc(db, 'users', uid, 'vydaje', id));
+      batch.update(doc(db, 'users', uid), { vydajeCount: increment(-1) });
+      await batch.commit();
+    }),
+
+  addPrijem: (data) =>
+    firestoreWrite(async () => {
+      const uid = getUid();
+      if (!uid) return;
+      const batch = writeBatch(db);
+      const newRef = doc(collection(db, 'users', uid, 'prijmy'));
+      batch.set(newRef, { ...data, createdAt: serverTimestamp() });
+      batch.update(doc(db, 'users', uid), { prijmyCount: increment(1) });
+      await batch.commit();
+    }),
+
+  removePrijem: (id) =>
+    firestoreWrite(async () => {
+      const uid = getUid();
+      if (!uid) return;
+      const batch = writeBatch(db);
+      batch.delete(doc(db, 'users', uid, 'prijmy', id));
+      batch.update(doc(db, 'users', uid), { prijmyCount: increment(-1) });
+      await batch.commit();
+    }),
+
+  clearVydaje: () =>
+    firestoreWrite(async () => {
+      const uid = getUid();
+      if (!uid) return;
+      const snap = await getDocs(collection(db, 'users', uid, 'vydaje'));
+      if (snap.empty) return;
+      const batch = writeBatch(db);
+      snap.docs.forEach((d) => batch.delete(d.ref));
+      batch.update(doc(db, 'users', uid), { vydajeCount: 0 });
+      await batch.commit();
+    }),
+
+  clearPrijmy: () =>
+    firestoreWrite(async () => {
+      const uid = getUid();
+      if (!uid) return;
+      const snap = await getDocs(collection(db, 'users', uid, 'prijmy'));
+      if (snap.empty) return;
+      const batch = writeBatch(db);
+      snap.docs.forEach((d) => batch.delete(d.ref));
+      batch.update(doc(db, 'users', uid), { prijmyCount: 0 });
+      await batch.commit();
+    }),
+
+  setFiltrPrijem: (filtry) =>
+    set((state) => ({ filtryPrijem: { ...state.filtryPrijem, ...filtry } })),
+
+  setFiltrVydaj: (filtry) =>
+    set((state) => ({ filtrVydaj: { ...state.filtrVydaj, ...filtry } })),
+}));
