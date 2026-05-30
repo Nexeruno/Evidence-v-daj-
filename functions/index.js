@@ -1,3 +1,4 @@
+require('dotenv').config();
 const functions = require('firebase-functions/v1');
 const admin = require('firebase-admin');
 const fetch = require('node-fetch');
@@ -59,20 +60,22 @@ exports.posliResetHesla = functions.region('europe-west1').https.onRequest((req,
       const link = await admin.auth().generatePasswordResetLink(email);
       console.log('✓ Reset link vytvořen');
 
-      const cfg = functions.config().brevo;
-      if (!cfg || !cfg.api_key || !cfg.sender) {
-        console.error('❌ Config chybí:', cfg);
+      const apiKey = process.env.BREVO_API_KEY;
+      const sender = process.env.BREVO_SENDER;
+
+      if (!apiKey || !sender) {
+        console.error('❌ Config chybí - BREVO_API_KEY:', !!apiKey, 'BREVO_SENDER:', !!sender);
         return res.status(500).json({ error: 'Brevo config chybí' });
       }
 
       const brevoRes = await fetch('https://api.brevo.com/v3/smtp/email', {
         method: 'POST',
         headers: {
-          'api-key': cfg.api_key,
+          'api-key': apiKey,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          sender: { name: 'Evidence Výdajů', email: cfg.sender },
+          sender: { name: 'Evidence Výdajů', email: sender },
           to: [{ email }],
           subject: 'Reset hesla — Evidence Výdajů',
           htmlContent: EMAIL_HTML(link),

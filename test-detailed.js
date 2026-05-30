@@ -3,7 +3,7 @@ import { chromium } from 'playwright';
 (async () => {
   const browser = await chromium.launch();
   const page = await browser.newPage();
-  const testEmail = `test-${Date.now()}@example.com`;
+  const testEmail = 'rezacdaniel2@gmail.com';
   const testPassword = 'TestPassword123!';
 
   // Loguj console messages z prohlížeče
