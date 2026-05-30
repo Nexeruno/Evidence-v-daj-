@@ -57,8 +57,17 @@ exports.posliResetHesla = functions.region('europe-west1').https.onRequest((req,
       }
 
       console.log('🔄 Reset hesla pro:', email);
+
+      // Validuj email format
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        console.error('❌ Neplatný email format:', email);
+        return res.status(400).json({ error: 'Neplatný formát emailu' });
+      }
+
+      console.log('📧 Email je validní, generuji reset link...');
       const link = await admin.auth().generatePasswordResetLink(email);
-      console.log('✓ Reset link vytvořen');
+      console.log('✓ Reset link vytvořen:', link.substring(0, 50) + '...');
 
       const apiKey = process.env.BREVO_API_KEY;
       const sender = process.env.BREVO_SENDER;
