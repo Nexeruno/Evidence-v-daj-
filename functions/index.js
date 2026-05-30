@@ -270,3 +270,139 @@ exports.aktualizujUzivatele = functions.region('europe-west1').https.onRequest((
     }
   });
 });
+
+// 🔄 Generování opakujících se transakcí - běží každou noc v 2:00 UTC
+exports.generateRecurringTransactions = functions
+  .region('europe-west1')
+  .pubsub.schedule('0 2 * * *') // Každý den v 2:00 UTC (4:00 CEST)
+  .timeZone('Europe/Prague')
+  .onRun(async (context) => {
+    try {
+      console.log('🔄 Spouštím generování opakujících se transakcí...');
+
+      const db = admin.firestore();
+      const usersSnap = await db.collection('users').get();
+      let generatedCount = 0;
+
+      for (const userDoc of usersSnap.docs) {
+        const uid = userDoc.id;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        // Načti všechny opakující se transakce uživatele
+        const recurringSnap = await db
+          .collection('users')
+          .doc(uid)
+          .collection('repeatingTransactions')
+          .get();
+
+        for (const recurringDoc of recurringSnap.docs) {
+          const recurring = recurringDoc.data();
+
+          // Přeskoč pokud je vypnuté
+          if (recurring.isActive === false) continue;
+
+          // Přeskoč pokud datum skončení již prošlo
+          if (recurring.recurrenceEndDate) {
+            const endDate = recurring.recurrenceEndDate.toDate?.() || new Date(recurring.recurrenceEndDate);
+            if (today > endDate) continue;
+          }
+
+          // Ověř zda má být dnes vygenerován nový záznam
+          const lastGenerated = recurring.lastGeneratedDate?.toDate?.() || new Date(recurring.lastGeneratedDate);
+          const shouldGenerate = shouldGenerateToday(today, lastGenerated, recurring);
+
+          if (shouldGenerate) {
+            // Vytvoř návrh transakce (pending)
+            const pendingTransaction = {
+              ...recurring,
+              id: undefined,
+              recurringId: recurringDoc.id,
+              status: 'pending',
+              createdAt: new Date(),
+              generatedDate: today,
+            };
+
+            // Ulož do pendingTransactions
+            await db
+              .collection('users')
+              .doc(uid)
+              .collection('pendingTransactions')
+              .add(pendingTransaction);
+
+            // Aktualizuj lastGeneratedDate v repeatingTransactions
+            await db
+              .collection('users')
+              .doc(uid)
+              .collection('repeatingTransactions')
+              .doc(recurringDoc.id)
+              .update({ lastGeneratedDate: today });
+
+            generatedCount++;
+            console.log(`✓ Vygenerováno pro uživatele ${uid}: ${recurring.title}`);
+          }
+        }
+      }
+
+      console.log(`✅ Generování hotovo. Vygenerováno ${generatedCount} záznamů.`);
+      return { success: true, generated: generatedCount };
+    } catch (err) {
+      console.error('❌ Chyba při generování:', err);
+      return { success: false, error: err.message };
+    }
+  });
+
+// Pomocná funkce - ověř zda má být záznam vygenerován dnes
+function shouldGenerateToday(today, lastGenerated, recurring) {
+  const lastGen = new Date(lastGenerated);
+  lastGen.setHours(0, 0, 0, 0);
+
+  const type = recurring.recurrenceType;
+  const freq = recurring.recurrenceFrequency || 1;
+
+  switch (type) {
+    case 'daily':
+      return getDateDifference(lastGen, today) >= freq;
+
+    case 'weekly':
+      // Kontrola podle dne v týdnu (0 = neděle, 6 = sobota)
+      const dayOfWeek = today.getDay();
+      const recurDays = recurring.recurrenceDays || [0]; // Default neděle
+      return recurDays.includes(dayOfWeek) && getDateDifference(lastGen, today) >= 7 * freq;
+
+    case 'monthly':
+      // Kontrola podle dne v měsíci
+      const dayOfMonth = today.getDate();
+      let recurDay = recurring.recurrenceDay || 1;
+
+      // Pokud je 30 = poslední den měsíce
+      if (recurDay === 30) {
+        const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+        recurDay = lastDayOfMonth;
+      }
+
+      return dayOfMonth === recurDay && getMonthDifference(lastGen, today) >= freq;
+
+    case 'yearly':
+      const isSameDay = today.getMonth() === lastGen.getMonth() &&
+                        today.getDate() === lastGen.getDate();
+      return isSameDay && getYearDifference(lastGen, today) >= freq;
+
+    default:
+      return false;
+  }
+}
+
+// Pomocné funkce na výpočet rozdílu
+function getDateDifference(date1, date2) {
+  return Math.floor((date2 - date1) / (1000 * 60 * 60 * 24));
+}
+
+function getMonthDifference(date1, date2) {
+  return (date2.getFullYear() - date1.getFullYear()) * 12 +
+         (date2.getMonth() - date1.getMonth());
+}
+
+function getYearDifference(date1, date2) {
+  return date2.getFullYear() - date1.getFullYear();
+}
