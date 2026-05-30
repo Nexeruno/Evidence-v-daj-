@@ -3,6 +3,7 @@ import { useAppStore } from '../utils/store';
 import { formatCastka, filterItems } from '../utils/formatters';
 import { MESICE, KATEGORIE_VYDAJ, KATEGORIE_PRIJEM } from '../utils/constants';
 import { ItemCardVydaj, ItemCardPrijem } from './ItemCard';
+import { PendingTransactions } from './PendingTransactions';
 import { exportVypisPDF } from '../utils/export';
 import { useAuth } from '../context/AuthContext';
 import { FileDown } from 'lucide-react';
@@ -185,6 +186,9 @@ export const Dashboard = () => {
 
       {/* Finanční zdraví — vždy viditelné, vždy nahoře */}
       <FinancniZdraviCard vydaje={vydaje} prijmy={prijmy} ready={dataReady} />
+
+      {/* Pending Transactions — schvalování automaticky vygenerovaných záznamů */}
+      <PendingTransactions />
 
       {/* Filter bar + export */}
       <div className="card flex flex-col sm:flex-row gap-4 items-end">
