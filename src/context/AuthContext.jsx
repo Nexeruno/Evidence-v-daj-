@@ -8,7 +8,7 @@ import {
 } from 'firebase/auth';
 import {
   doc, setDoc, getDoc, getDocs, updateDoc,
-  collection, query, where, serverTimestamp, deleteDoc,
+  collection, query, where, serverTimestamp, deleteDoc, increment,
 } from 'firebase/firestore';
 import { auth, db } from '../utils/firebase';
 import { clearSessionCache } from '../hooks/useFirestoreSync';
@@ -77,7 +77,13 @@ export const AuthProvider = ({ children }) => {
       email = usernameDoc.data().email;
     }
 
-    await signInWithEmailAndPassword(auth, email, password);
+    const cred = await signInWithEmailAndPassword(auth, email, password);
+
+    // Track login: lastLogin + loginCount
+    updateDoc(doc(db, 'users', cred.user.uid), {
+      lastLogin: serverTimestamp(),
+      loginCount: increment(1),
+    }).catch(() => {});
   };
 
   const register = async (username, email, password, passwordConfirm) => {

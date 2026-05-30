@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react';
 import { collection, getDocs, doc, updateDoc, orderBy, query } from 'firebase/firestore';
-import { db } from '../../utils/firebase';
+import { db, auth } from '../../utils/firebase';
 import { useAuth } from '../../context/AuthContext';
 import { formatDatum } from '../../utils/formatters';
-import { Users, ShieldCheck, ShieldOff, RefreshCw, KeyRound } from 'lucide-react';
+import { Users, ShieldCheck, ShieldOff, RefreshCw, KeyRound, Pencil, Ban, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export const AdminPage = () => {
   const { session } = useAuth();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [editingUid, setEditingUid] = useState(null);
+  const [editValue, setEditValue] = useState('');
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -20,6 +22,7 @@ export const AdminPage = () => {
           uid: d.id,
           ...d.data(),
           createdAt: d.data().createdAt?.toDate?.()?.toISOString?.() || null,
+          lastLogin: d.data().lastLogin?.toDate?.()?.toISOString?.() || null,
         }))
       );
     } catch (err) {
@@ -68,6 +71,89 @@ export const AdminPage = () => {
       toast.success(`Role změněna na: ${newRole}`);
     } catch {
       toast.error('Chyba při změně role');
+    }
+  };
+
+  const handleDeleteUser = async (uid, email) => {
+    if (!window.confirm(`Opravdu smazat účet ${email}? Všechna data budou trvale smazána!`)) return;
+
+    try {
+      const idToken = await session.uid && auth.currentUser?.getIdToken();
+      const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
+      const url = `https://europe-west1-${projectId}.cloudfunctions.net/smazUzivatele`;
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid, idToken }),
+      });
+
+      if (!response.ok) throw new Error('Chyba při smazání uživatele');
+
+      setUsers((prev) => prev.filter((u) => u.uid !== uid));
+      toast.success(`Uživatel ${email} smazán`);
+    } catch (err) {
+      console.error('Delete error:', err);
+      toast.error('Chyba při smazání uživatele');
+    }
+  };
+
+  const handleBlockUser = async (uid, currentDisabled) => {
+    try {
+      const idToken = await session.uid && auth.currentUser?.getIdToken();
+      const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
+      const url = `https://europe-west1-${projectId}.cloudfunctions.net/zablokujUzivatele`;
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid, blocked: !currentDisabled, idToken }),
+      });
+
+      if (!response.ok) throw new Error('Chyba při blokování uživatele');
+
+      setUsers((prev) =>
+        prev.map((u) => (u.uid === uid ? { ...u, disabled: !currentDisabled } : u))
+      );
+      toast.success(!currentDisabled ? 'Uživatel blokován' : 'Uživatel odblokován');
+    } catch (err) {
+      console.error('Block error:', err);
+      toast.error('Chyba při blokování uživatele');
+    }
+  };
+
+  const handleEditUsername = async (uid, newUsername) => {
+    if (!newUsername.trim()) return;
+    if (newUsername.length < 3 || newUsername.length > 20) {
+      toast.error('Jméno musí mít 3–20 znaků');
+      return;
+    }
+    if (!/^[a-zA-Z0-9_]+$/.test(newUsername)) {
+      toast.error('Jméno může obsahovat jen písmena, číslice a _');
+      return;
+    }
+
+    try {
+      const idToken = await session.uid && auth.currentUser?.getIdToken();
+      const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
+      const url = `https://europe-west1-${projectId}.cloudfunctions.net/aktualizujUzivatele`;
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid, username: newUsername, idToken }),
+      });
+
+      if (!response.ok) throw new Error('Chyba při editaci uživatele');
+
+      setUsers((prev) =>
+        prev.map((u) => (u.uid === uid ? { ...u, username: newUsername } : u))
+      );
+      setEditingUid(null);
+      toast.success(`Jméno změněno na: ${newUsername}`);
+    } catch (err) {
+      console.error('Edit error:', err);
+      toast.error('Chyba při editaci uživatele');
     }
   };
 
@@ -136,6 +222,8 @@ export const AdminPage = () => {
                   <th className="pb-3 font-medium">Email</th>
                   <th className="pb-3 font-medium">UID</th>
                   <th className="pb-3 font-medium">Registrace</th>
+                  <th className="pb-3 font-medium">Poslední login</th>
+                  <th className="pb-3 font-medium text-center">Loginů</th>
                   <th className="pb-3 font-medium text-center">Výdaje</th>
                   <th className="pb-3 font-medium text-center">Příjmy</th>
                   <th className="pb-3 font-medium text-center">Role</th>
@@ -145,7 +233,25 @@ export const AdminPage = () => {
               <tbody className="divide-y divide-light-border dark:divide-dark-border">
                 {users.map((user) => (
                   <tr key={user.uid} className="hover:bg-light-bg dark:hover:bg-dark-bg transition-colors">
-                    <td className="py-3 font-medium">{user.username || '—'}</td>
+                    <td className="py-3 font-medium">
+                      {editingUid === user.uid ? (
+                        <input
+                          autoFocus
+                          type="text"
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          onBlur={() => handleEditUsername(user.uid, editValue)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleEditUsername(user.uid, editValue);
+                            if (e.key === 'Escape') setEditingUid(null);
+                          }}
+                          className="input-field py-1 px-2"
+                          maxLength={20}
+                        />
+                      ) : (
+                        user.username || '—'
+                      )}
+                    </td>
                     <td className="py-3 text-light-textMuted dark:text-dark-textMuted">{user.email}</td>
                     <td className="py-3 font-mono text-xs text-light-textMuted dark:text-dark-textMuted">
                       {user.uid.slice(0, 10)}…
@@ -155,18 +261,33 @@ export const AdminPage = () => {
                         ? formatDatum(String(user.createdAt).slice(0, 10))
                         : '—'}
                     </td>
+                    <td className="py-3 text-light-textMuted dark:text-dark-textMuted">
+                      {user.lastLogin
+                        ? formatDatum(String(user.lastLogin).slice(0, 10))
+                        : '—'}
+                    </td>
+                    <td className="py-3 text-center text-light-textMuted dark:text-dark-textMuted">
+                      {user.loginCount ?? 0}
+                    </td>
                     <td className="py-3 text-center">{user.vydajeCount ?? 0}</td>
                     <td className="py-3 text-center">{user.prijmyCount ?? 0}</td>
                     <td className="py-3 text-center">
-                      <span
-                        className={`px-2 py-0.5 rounded text-xs font-medium ${
-                          user.role === 'admin'
-                            ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300'
-                            : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
-                        }`}
-                      >
-                        {user.role === 'admin' ? 'admin' : 'user'}
-                      </span>
+                      <div className="flex items-center justify-center gap-1">
+                        <span
+                          className={`px-2 py-0.5 rounded text-xs font-medium ${
+                            user.role === 'admin'
+                              ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300'
+                              : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
+                          }`}
+                        >
+                          {user.role === 'admin' ? 'admin' : 'user'}
+                        </span>
+                        {user.disabled && (
+                          <span className="px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300">
+                            blokován
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="py-3 text-center">
                       <div className="flex items-center justify-center gap-1">
@@ -178,7 +299,43 @@ export const AdminPage = () => {
                         >
                           <KeyRound size={16} className="text-blue-500" />
                         </button>
-                        {/* Změna role */}
+                        {/* Edit username */}
+                        {user.uid !== session.uid && (
+                          <button
+                            onClick={() => {
+                              setEditingUid(user.uid);
+                              setEditValue(user.username || '');
+                            }}
+                            title="Editovat jméno"
+                            className="p-1.5 rounded hover:bg-light-border dark:hover:bg-dark-border transition-colors"
+                          >
+                            <Pencil size={16} className="text-gray-500" />
+                          </button>
+                        )}
+                        {/* Block user */}
+                        {user.uid !== session.uid && (
+                          <button
+                            onClick={() => handleBlockUser(user.uid, user.disabled)}
+                            title={user.disabled ? 'Odblokovat' : 'Blokovat'}
+                            className="p-1.5 rounded hover:bg-light-border dark:hover:bg-dark-border transition-colors"
+                          >
+                            <Ban size={16} className={user.disabled ? 'text-green-500' : 'text-red-500'} />
+                          </button>
+                        )}
+                        {/* Delete user */}
+                        {user.uid !== session.uid && (
+                          <button
+                            onClick={() => handleDeleteUser(user.uid, user.email)}
+                            title="Smazat účet"
+                            className="p-1.5 rounded hover:bg-light-border dark:hover:bg-dark-border transition-colors"
+                          >
+                            <Trash2 size={16} className="text-red-600" />
+                          </button>
+                        )}
+                        {user.uid === session.uid && (
+                          <span className="text-xs text-light-textMuted dark:text-dark-textMuted">ty</span>
+                        )}
+                        {/* Role toggle */}
                         {user.uid !== session.uid && (
                           <button
                             onClick={() => toggleRole(user.uid, user.role)}
@@ -191,9 +348,6 @@ export const AdminPage = () => {
                               <ShieldCheck size={16} className="text-purple-500" />
                             )}
                           </button>
-                        )}
-                        {user.uid === session.uid && (
-                          <span className="text-xs text-light-textMuted dark:text-dark-textMuted">ty</span>
                         )}
                       </div>
                     </td>

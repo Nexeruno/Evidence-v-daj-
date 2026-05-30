@@ -107,3 +107,163 @@ exports.posliResetHesla = functions.region('europe-west1').https.onRequest((req,
     }
   });
 });
+
+// Smazat uživatele (delete user account + all data)
+exports.smazUzivatele = functions.region('europe-west1').https.onRequest((req, res) => {
+  cors(req, res, async () => {
+    try {
+      const { uid, idToken } = req.body;
+
+      if (!uid || !idToken) {
+        return res.status(400).json({ error: 'uid a idToken jsou povinné' });
+      }
+
+      // Ověř, že volající je admin
+      const decodedToken = await admin.auth().verifyIdToken(idToken);
+      const adminDoc = await admin.firestore().doc(`users/${decodedToken.uid}`).get();
+      const isAdmin = adminDoc.data()?.role === 'admin' || decodedToken.email === (process.env.ADMIN_EMAIL || '');
+
+      if (!isAdmin) {
+        return res.status(403).json({ error: 'Nemáš oprávnění' });
+      }
+
+      console.log('🗑️ Smazávám uživatele:', uid);
+
+      // Batch delete: wszystkie subcollections
+      const db = admin.firestore();
+      const batch = db.batch();
+
+      // Smaž výdaje
+      const vydajeSnap = await db.collection(`users/${uid}/vydaje`).get();
+      vydajeSnap.forEach(doc => batch.delete(doc.ref));
+
+      // Smaž příjmy
+      const prijmySnap = await db.collection(`users/${uid}/prijmy`).get();
+      prijmySnap.forEach(doc => batch.delete(doc.ref));
+
+      // Smaž user profil
+      batch.delete(db.doc(`users/${uid}`));
+
+      // Smaž username mapping
+      const userDoc = await db.doc(`users/${uid}`).get();
+      if (userDoc.exists) {
+        const usernameLower = userDoc.data()?.usernameLower;
+        if (usernameLower) {
+          batch.delete(db.doc(`usernames/${usernameLower}`));
+        }
+      }
+
+      // Commit batch
+      await batch.commit();
+
+      // Smaž z Firebase Auth
+      await admin.auth().deleteUser(uid);
+
+      console.log('✓ Uživatel smazán:', uid);
+      return res.status(200).json({ ok: true });
+    } catch (err) {
+      console.error('smazUzivatele error:', err);
+      return res.status(500).json({ error: err.message || 'Chyba při smazání uživatele' });
+    }
+  });
+});
+
+// Blokovat/odblokovat uživatele
+exports.zablokujUzivatele = functions.region('europe-west1').https.onRequest((req, res) => {
+  cors(req, res, async () => {
+    try {
+      const { uid, blocked, idToken } = req.body;
+
+      if (!uid || blocked === undefined || !idToken) {
+        return res.status(400).json({ error: 'uid, blocked a idToken jsou povinné' });
+      }
+
+      // Ověř, že volající je admin
+      const decodedToken = await admin.auth().verifyIdToken(idToken);
+      const adminDoc = await admin.firestore().doc(`users/${decodedToken.uid}`).get();
+      const isAdmin = adminDoc.data()?.role === 'admin' || decodedToken.email === (process.env.ADMIN_EMAIL || '');
+
+      if (!isAdmin) {
+        return res.status(403).json({ error: 'Nemáš oprávnění' });
+      }
+
+      console.log('🔒 Blokuji uživatele:', uid, 'blocked:', blocked);
+
+      // Aktualizuj Firebase Auth
+      await admin.auth().updateUser(uid, { disabled: blocked });
+
+      // Aktualizuj Firestore
+      await admin.firestore().doc(`users/${uid}`).update({ disabled: blocked });
+
+      console.log('✓ Uživatel aktualizován:', uid);
+      return res.status(200).json({ ok: true });
+    } catch (err) {
+      console.error('zablokujUzivatele error:', err);
+      return res.status(500).json({ error: err.message || 'Chyba při blokování uživatele' });
+    }
+  });
+});
+
+// Aktualizovat uživatele (username apod)
+exports.aktualizujUzivatele = functions.region('europe-west1').https.onRequest((req, res) => {
+  cors(req, res, async () => {
+    try {
+      const { uid, username, email, idToken } = req.body;
+
+      if (!uid || !idToken) {
+        return res.status(400).json({ error: 'uid a idToken jsou povinné' });
+      }
+
+      // Ověř, že volající je admin
+      const decodedToken = await admin.auth().verifyIdToken(idToken);
+      const adminDoc = await admin.firestore().doc(`users/${decodedToken.uid}`).get();
+      const isAdmin = adminDoc.data()?.role === 'admin' || decodedToken.email === (process.env.ADMIN_EMAIL || '');
+
+      if (!isAdmin) {
+        return res.status(403).json({ error: 'Nemáš oprávnění' });
+      }
+
+      console.log('✏️ Aktualizuji uživatele:', uid);
+
+      const db = admin.firestore();
+      const updates = {};
+
+      // Username změna
+      if (username) {
+        const usernameLower = username.toLowerCase();
+        updates.username = username;
+        updates.usernameLower = usernameLower;
+
+        // Smaž starý username mapping a vytvoř nový
+        const oldUserDoc = await db.doc(`users/${uid}`).get();
+        if (oldUserDoc.exists) {
+          const oldUsernameLower = oldUserDoc.data()?.usernameLower;
+          if (oldUsernameLower && oldUsernameLower !== usernameLower) {
+            await db.doc(`usernames/${oldUsernameLower}`).delete().catch(() => {});
+          }
+        }
+
+        // Vytvoř nový username mapping
+        await db.doc(`usernames/${usernameLower}`).set({ email: email || oldUserDoc.data()?.email, uid });
+      }
+
+      // Email změna
+      if (email) {
+        // Firebase Auth
+        await admin.auth().updateUser(uid, { email });
+        updates.email = email;
+      }
+
+      // Update Firestore
+      if (Object.keys(updates).length > 0) {
+        await db.doc(`users/${uid}`).update(updates);
+      }
+
+      console.log('✓ Uživatel aktualizován:', uid);
+      return res.status(200).json({ ok: true });
+    } catch (err) {
+      console.error('aktualizujUzivatele error:', err);
+      return res.status(500).json({ error: err.message || 'Chyba při aktualizaci uživatele' });
+    }
+  });
+});
