@@ -647,6 +647,95 @@ exports.cleanupDuplicates = functions
     });
   });
 
+// 🐛 DEBUG — Diagnóza opakujících se transakcí
+exports.debugRecurring = functions
+  .region('europe-west1')
+  .https.onRequest(async (req, res) => {
+    cors(req, res, async () => {
+      try {
+        const token = req.headers.authorization?.split('Bearer ')[1];
+        if (!token) {
+          return res.status(401).json({ error: 'Nemáš oprávnění' });
+        }
+
+        const decodedToken = await admin.auth().verifyIdToken(token);
+        const uid = decodedToken.uid;
+
+        console.log(`🐛 DEBUG: Kontroluji opakující se transakce uživatele ${uid}`);
+
+        const db = admin.firestore();
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        // Načti opakující se transakce
+        const recurringSnap = await db
+          .collection('users')
+          .doc(uid)
+          .collection('repeatingTransactions')
+          .get();
+
+        const recurringList = [];
+        const issues = [];
+
+        for (const doc of recurringSnap.docs) {
+          const data = doc.data();
+
+          recurringList.push({
+            id: doc.id,
+            title: data.title,
+            type: data.type,
+            amount: data.amount,
+            category: data.category,
+            recurrenceType: data.recurrenceType,
+            recurrenceFrequency: data.recurrenceFrequency,
+            isActive: data.isActive,
+            lastGeneratedDate: data.lastGeneratedDate?.toDate?.()?.toISOString?.() || 'CHYBÍ',
+            recurrenceStartDate: data.recurrenceStartDate?.toDate?.()?.toISOString?.() || 'CHYBÍ',
+            recurrenceEndDate: data.recurrenceEndDate?.toDate?.()?.toISOString?.() || 'NENÍ NASTAVENO',
+          });
+
+          // Kontrola problémů
+          if (!data.title?.trim()) issues.push(`${doc.id}: Chybí název`);
+          if (!data.amount || data.amount <= 0) issues.push(`${doc.id}: Neplatná částka ${data.amount}`);
+          if (!data.category) issues.push(`${doc.id}: Chybí kategorie`);
+          if (!data.type) issues.push(`${doc.id}: Chybí typ (vydaj/prijem)`);
+          if (!data.recurrenceType) issues.push(`${doc.id}: Chybí recurrenceType`);
+          if (!data.isActive) issues.push(`${doc.id}: isActive = false (vypnuté)`);
+
+          const lastGen = data.lastGeneratedDate?.toDate?.() || new Date(data.lastGeneratedDate);
+          const lastGenDate = new Date(lastGen);
+          lastGenDate.setHours(0, 0, 0, 0);
+
+          if (lastGenDate.getTime() === today.getTime()) {
+            issues.push(`${doc.id} (${data.title}): Už byla vygenerována DNES`);
+          }
+        }
+
+        // Počet pending
+        const pendingSnap = await db
+          .collection('users')
+          .doc(uid)
+          .collection('pendingTransactions')
+          .get();
+
+        return res.status(200).json({
+          success: true,
+          today: today.toISOString().split('T')[0],
+          recurringCount: recurringSnap.size,
+          pendingCount: pendingSnap.size,
+          recurringList,
+          issues: issues.length > 0 ? issues : ['Žádné problémy!'],
+          message: recurringSnap.size === 0
+            ? '❌ ŽÁDNÉ OPAKUJÍCÍ SE TRANSAKCE! Vytvoř si jednu.'
+            : `✅ Máš ${recurringSnap.size} opakujících se transakcí`
+        });
+      } catch (err) {
+        console.error('❌ DEBUG error:', err);
+        return res.status(500).json({ success: false, error: err.message });
+      }
+    });
+  });
+
 // 💚 HEALTH CHECK — Ověření stavu systému
 exports.healthCheck = functions
   .region('europe-west1')

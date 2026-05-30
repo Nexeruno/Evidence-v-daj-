@@ -14,6 +14,7 @@ export const PendingTransactions = () => {
   const [editForm, setEditForm] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [cleaning, setCleaning] = useState(false);
+  const [debugging, setDebugging] = useState(false);
 
   const addVydaj = useAppStore((s) => s.addVydaj);
   const addPrijem = useAppStore((s) => s.addPrijem);
@@ -37,6 +38,52 @@ export const PendingTransactions = () => {
 
     loadPending();
   }, [session?.uid]);
+
+  // Debug - zjistit co se děje
+  const handleDebug = async () => {
+    setDebugging(true);
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) {
+        toast.error('Nejsi přihlášen');
+        return;
+      }
+
+      const response = await fetch(
+        'https://europe-west1-evidence-vydaju.cloudfunctions.net/debugRecurring',
+        {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Chyba při debugování');
+      }
+
+      console.log('🐛 DEBUG DATA:', data);
+
+      // Zobraz problém
+      if (data.recurringCount === 0) {
+        toast.error('❌ Nemáš žádné opakující se transakce! Vytvoř si jednu (⏰ tlačítko)');
+      } else {
+        toast.error(
+          `🐛 Máš ${data.recurringCount} opakujících se transakcí\n` +
+          `${data.issues.join('\n')}`
+        );
+      }
+    } catch (err) {
+      console.error('Chyba:', err);
+      toast.error(err.message || 'Chyba při debugování');
+    } finally {
+      setDebugging(false);
+    }
+  };
 
   // Vyčisti duplikáty a oprav data
   const handleCleanup = async () => {
@@ -198,6 +245,15 @@ export const PendingTransactions = () => {
           </h3>
         )}
         <div className="flex items-center gap-2">
+          <button
+            onClick={handleDebug}
+            disabled={debugging}
+            className="flex items-center gap-2 px-3 py-1 text-sm bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors disabled:opacity-60"
+            title="Zkontrolovat co se děje s opakujícími se transakcemi"
+          >
+            🐛
+            {debugging ? 'Debuguji...' : 'Debug'}
+          </button>
           <button
             onClick={handleCleanup}
             disabled={cleaning}
