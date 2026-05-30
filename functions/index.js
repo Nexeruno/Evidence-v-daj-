@@ -568,3 +568,73 @@ exports.healthCheck = functions.region(REGION).https.onRequest(async (req, res) 
     }
   });
 });
+
+// 📊 DEVOPS MONITORING - Metriky pro AI/MLOps
+exports.metrics = functions.region(REGION).https.onRequest(async (req, res) => {
+  cors(req, res, async () => {
+    try {
+      const startTime = Date.now();
+
+      // Počty
+      const usersSnap = await db.collection('users').get();
+      const allPending = [];
+      const allRecurring = [];
+      let totalTransactions = 0;
+
+      for (const userDoc of usersSnap.docs) {
+        const pendingSnap = await db.collection('users').doc(userDoc.id).collection('pendingTransactions').get();
+        const recurringSnap = await db.collection('users').doc(userDoc.id).collection('repeatingTransactions').get();
+        const vydajeSnap = await db.collection('users').doc(userDoc.id).collection('vydaje').get();
+        const prijmySnap = await db.collection('users').doc(userDoc.id).collection('prijmy').get();
+
+        allPending.push(...pendingSnap.docs.map(d => ({ ...d.data(), uid: userDoc.id })));
+        allRecurring.push(...recurringSnap.docs.map(d => ({ ...d.data(), uid: userDoc.id })));
+        totalTransactions += vydajeSnap.size + prijmySnap.size;
+      }
+
+      const metricsData = {
+        timestamp: new Date().toISOString(),
+        version: '1.0.0',
+        metrics: {
+          users: {
+            total: usersSnap.size,
+          },
+          transactions: {
+            total: totalTransactions,
+            pending: allPending.length,
+            recurring: allRecurring.length,
+          },
+          pending: {
+            count: allPending.length,
+            byType: {
+              vydaj: allPending.filter(p => p.type === 'vydaj').length,
+              prijem: allPending.filter(p => p.type === 'prijem').length,
+            },
+            totalAmount: {
+              vydaj: allPending.filter(p => p.type === 'vydaj').reduce((s, p) => s + (p.amount || 0), 0),
+              prijem: allPending.filter(p => p.type === 'prijem').reduce((s, p) => s + (p.amount || 0), 0),
+            },
+          },
+          recurring: {
+            count: allRecurring.length,
+            byType: {
+              daily: allRecurring.filter(r => r.recurrenceType === 'daily').length,
+              weekly: allRecurring.filter(r => r.recurrenceType === 'weekly').length,
+              monthly: allRecurring.filter(r => r.recurrenceType === 'monthly').length,
+              yearly: allRecurring.filter(r => r.recurrenceType === 'yearly').length,
+            },
+            active: allRecurring.filter(r => r.isActive).length,
+          },
+        },
+        performance: {
+          responseTimeMs: Date.now() - startTime,
+        },
+      };
+
+      res.status(200).json(metricsData);
+    } catch (err) {
+      console.error('❌ METRICS error:', err);
+      res.status(500).json({ error: err.message, timestamp: new Date().toISOString() });
+    }
+  });
+});
