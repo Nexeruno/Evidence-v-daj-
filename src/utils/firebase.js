@@ -22,7 +22,9 @@ export const db = initializeFirestore(app, {
   localCache: persistentLocalCache(),
 });
 
-// Emulator support pro vývoj
+// Emulator support pro vývoj (vyžaduje: firebase emulators:start)
+// Odkomentuj následující řádky pokud chceš používat lokální emulátor
+/*
 if (import.meta.env.DEV) {
   try {
     connectAuthEmulator(auth, 'http://localhost:9099', { disableWarnings: true });
@@ -43,3 +45,4 @@ if (import.meta.env.DEV) {
     // Already connected
   }
 }
+*/
