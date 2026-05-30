@@ -4,7 +4,7 @@ import { db, auth } from '../../utils/firebase';
 import { firebaseConfig } from '../../config/firebase-config';
 import { useAuth } from '../../context/AuthContext';
 import { formatDatum } from '../../utils/formatters';
-import { Users, ShieldCheck, ShieldOff, RefreshCw, KeyRound, Pencil, Ban, Trash2 } from 'lucide-react';
+import { Users, ShieldCheck, ShieldOff, RefreshCw, KeyRound, Pencil, Ban, Trash2, Check } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export const AdminPage = () => {
@@ -335,7 +335,11 @@ export const AdminPage = () => {
                             title={user.disabled ? 'Odblokovat' : 'Blokovat'}
                             className="p-1.5 rounded hover:bg-light-border dark:hover:bg-dark-border transition-colors"
                           >
-                            <Ban size={16} className={user.disabled ? 'text-green-500' : 'text-red-500'} />
+                            {user.disabled ? (
+                              <Check size={16} className="text-green-500" />
+                            ) : (
+                              <Ban size={16} className="text-red-500" />
+                            )}
                           </button>
                         )}
                         {/* Delete user */}
