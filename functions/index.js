@@ -446,7 +446,11 @@ exports.testGenerateRecurring = functions
             if (today > endDate) continue;
           }
 
-          const lastGenerated = recurring.lastGeneratedDate?.toDate?.() || new Date(recurring.lastGeneratedDate);
+          // Pro testování - resetuj lastGeneratedDate na minulý den
+          const yesterday = new Date(today);
+          yesterday.setDate(yesterday.getDate() - 1);
+
+          const lastGenerated = yesterday; // Vždy použij včera pro test
           const shouldGenerate = shouldGenerateToday(today, lastGenerated, recurring);
 
           if (shouldGenerate) {
