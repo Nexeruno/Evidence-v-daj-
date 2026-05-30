@@ -4,6 +4,9 @@ const admin = require('firebase-admin');
 const fetch = require('node-fetch');
 const cors = require('cors')({ origin: true });
 
+// Admin email pro ověření oprávnění
+const ADMIN_EMAIL = 'danzby@seznam.cz';
+
 admin.initializeApp();
 
 const EMAIL_HTML = (link) => `<!DOCTYPE html>
@@ -121,7 +124,7 @@ exports.smazUzivatele = functions.region('europe-west1').https.onRequest((req, r
       // Ověř, že volající je admin
       const decodedToken = await admin.auth().verifyIdToken(idToken);
       const adminDoc = await admin.firestore().doc(`users/${decodedToken.uid}`).get();
-      const isAdmin = adminDoc.data()?.role === 'admin' || decodedToken.email === (process.env.ADMIN_EMAIL || '');
+      const isAdmin = adminDoc.data()?.role === 'admin' || decodedToken.email === (ADMIN_EMAIL);
 
       if (!isAdmin) {
         return res.status(403).json({ error: 'Nemáš oprávnění' });
@@ -181,7 +184,7 @@ exports.zablokujUzivatele = functions.region('europe-west1').https.onRequest((re
       // Ověř, že volající je admin
       const decodedToken = await admin.auth().verifyIdToken(idToken);
       const adminDoc = await admin.firestore().doc(`users/${decodedToken.uid}`).get();
-      const isAdmin = adminDoc.data()?.role === 'admin' || decodedToken.email === (process.env.ADMIN_EMAIL || '');
+      const isAdmin = adminDoc.data()?.role === 'admin' || decodedToken.email === (ADMIN_EMAIL);
 
       if (!isAdmin) {
         return res.status(403).json({ error: 'Nemáš oprávnění' });
@@ -217,7 +220,7 @@ exports.aktualizujUzivatele = functions.region('europe-west1').https.onRequest((
       // Ověř, že volající je admin
       const decodedToken = await admin.auth().verifyIdToken(idToken);
       const adminDoc = await admin.firestore().doc(`users/${decodedToken.uid}`).get();
-      const isAdmin = adminDoc.data()?.role === 'admin' || decodedToken.email === (process.env.ADMIN_EMAIL || '');
+      const isAdmin = adminDoc.data()?.role === 'admin' || decodedToken.email === (ADMIN_EMAIL);
 
       if (!isAdmin) {
         return res.status(403).json({ error: 'Nemáš oprávnění' });
