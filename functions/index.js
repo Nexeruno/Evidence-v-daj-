@@ -406,3 +406,88 @@ function getMonthDifference(date1, date2) {
 function getYearDifference(date1, date2) {
   return date2.getFullYear() - date1.getFullYear();
 }
+
+// 🧪 TEST ENDPOINT — Ruční spuštění generování (pro testování)
+exports.testGenerateRecurring = functions
+  .region('europe-west1')
+  .https.onRequest(async (req, res) => {
+    cors(req, res, async () => {
+      try {
+        // Ověř, že je uživatel přihlášený
+        const token = req.headers.authorization?.split('Bearer ')[1];
+        if (!token) {
+          return res.status(401).json({ error: 'Nemáš oprávnění' });
+        }
+
+        const decodedToken = await admin.auth().verifyIdToken(token);
+        const uid = decodedToken.uid;
+
+        console.log(`🧪 TEST: Generuji pro uživatele ${uid}...`);
+
+        const db = admin.firestore();
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        let generatedCount = 0;
+
+        // Načti opakující se transakce
+        const recurringSnap = await db
+          .collection('users')
+          .doc(uid)
+          .collection('repeatingTransactions')
+          .get();
+
+        for (const recurringDoc of recurringSnap.docs) {
+          const recurring = recurringDoc.data();
+
+          if (recurring.isActive === false) continue;
+          if (recurring.recurrenceEndDate) {
+            const endDate = recurring.recurrenceEndDate.toDate?.() || new Date(recurring.recurrenceEndDate);
+            if (today > endDate) continue;
+          }
+
+          const lastGenerated = recurring.lastGeneratedDate?.toDate?.() || new Date(recurring.lastGeneratedDate);
+          const shouldGenerate = shouldGenerateToday(today, lastGenerated, recurring);
+
+          if (shouldGenerate) {
+            const pendingTransaction = {
+              ...recurring,
+              id: undefined,
+              recurringId: recurringDoc.id,
+              status: 'pending',
+              createdAt: new Date(),
+              generatedDate: today,
+            };
+
+            await db
+              .collection('users')
+              .doc(uid)
+              .collection('pendingTransactions')
+              .add(pendingTransaction);
+
+            await db
+              .collection('users')
+              .doc(uid)
+              .collection('repeatingTransactions')
+              .doc(recurringDoc.id)
+              .update({ lastGeneratedDate: today });
+
+            generatedCount++;
+            console.log(`✓ Vygenerováno: ${recurring.title}`);
+          }
+        }
+
+        console.log(`✅ TEST: Hotovo. Vygenerováno ${generatedCount} záznamů.`);
+        return res.status(200).json({
+          success: true,
+          generated: generatedCount,
+          message: generatedCount > 0
+            ? `Vygenerováno ${generatedCount} záznamů ke schválení! Jdi do Dashboardu.`
+            : 'Žádné opakující se transakce k vygenerování (nebo už byly vygenerovány dnes).'
+        });
+      } catch (err) {
+        console.error('❌ TEST error:', err);
+        return res.status(500).json({ error: err.message });
+      }
+    });
+  });

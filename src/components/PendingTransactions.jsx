@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Check, X, Edit2, RefreshCw } from 'lucide-react';
+import { Check, X, Edit2, RefreshCw, Zap } from 'lucide-react';
 import { useAppStore } from '../utils/store';
-import { db } from '../utils/firebase';
+import { db, auth } from '../utils/firebase';
 import { collection, getDocs, deleteDoc, doc } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
@@ -12,6 +12,7 @@ export const PendingTransactions = () => {
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState(null);
+  const [generating, setGenerating] = useState(false);
 
   const addVydaj = useAppStore((s) => s.addVydaj);
   const addPrijem = useAppStore((s) => s.addPrijem);
@@ -35,6 +36,51 @@ export const PendingTransactions = () => {
 
     loadPending();
   }, [session?.uid]);
+
+  // Vygeneruj návrhy (testování)
+  const handleGenerateTest = async () => {
+    setGenerating(true);
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) {
+        toast.error('Nejsi přihlášen');
+        return;
+      }
+
+      const response = await fetch(
+        'https://europe-west1-evidence-vydaju.cloudfunctions.net/testGenerateRecurring',
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Chyba při generování');
+      }
+
+      toast.success(data.message);
+
+      // Znovu načti pending
+      if (data.generated > 0) {
+        const snap = await getDocs(
+          collection(db, 'users', session.uid, 'pendingTransactions')
+        );
+        const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        setPendingList(list);
+      }
+    } catch (err) {
+      console.error('Chyba:', err);
+      toast.error(err.message || 'Chyba při generování');
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   // Schválí transakci
   const handleApprove = async (pending) => {
@@ -107,11 +153,22 @@ export const PendingTransactions = () => {
 
   return (
     <div className="card border-l-4 border-blue-500 bg-blue-50 dark:bg-blue-900/20">
-      <div className="flex items-center gap-2 mb-4">
-        <RefreshCw size={20} className="text-blue-600 dark:text-blue-400" />
-        <h3 className="text-lg font-semibold">
-          {pendingList.length} čeká na schválení
-        </h3>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <RefreshCw size={20} className="text-blue-600 dark:text-blue-400" />
+          <h3 className="text-lg font-semibold">
+            {pendingList.length} čeká na schválení
+          </h3>
+        </div>
+        <button
+          onClick={handleGenerateTest}
+          disabled={generating}
+          className="flex items-center gap-2 px-3 py-1 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-60"
+          title="Testovat generování opakujících se transakcí"
+        >
+          <Zap size={16} />
+          {generating ? 'Generuji...' : 'Test'}
+        </button>
       </div>
 
       <div className="space-y-2">
