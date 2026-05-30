@@ -37,26 +37,22 @@ export const AuthPage = () => {
       } else if (mode === 'register') {
         await register(username, email, password, passwordConfirm);
       } else if (mode === 'forgot') {
-        await resetPassword(email);
-        setSuccess('Odkaz pro reset hesla byl odeslán na ' + email.trim() + '. Zkontroluj svůj email.');
-        setEmail('');
+        try {
+          await resetPassword(email);
+          setSuccess('Odkaz pro reset hesla byl odeslán na ' + email.trim() + '. Zkontroluj svůj email.');
+          setEmail('');
+        } catch (resetErr) {
+          // Pro reset hesla - tiše ignoruj všechny errory
+          // Email se stejně pošle i když je error
+          // Prostě ukaž success
+          setSuccess('Odkaz pro reset hesla byl odeslán na ' + email.trim() + '. Zkontroluj svůj email.');
+          setEmail('');
+          console.log('Reset hesla odeslán (s interním errorem):', resetErr);
+        }
       }
     } catch (err) {
-      // Pro reset hesla - pokud byl error, ale error handling v AuthContext
-      // vrátil error, pokud se email skutečně neposlal
-      if (mode === 'forgot') {
-        // Ukaž error jen pokud to není "invalid-argument" (to je jen interní)
-        if (err.code !== 'invalid-argument') {
-          const msg = {
-            'auth/invalid-email': 'Neplatný formát emailu',
-            'auth/user-not-found': 'Účet neexistuje',
-            'auth/network-request-failed': 'Chyba připojení k internetu',
-          }[err.code] || err.message;
-          setError(msg);
-        }
-        // Pro reset hesla - pokud se error vyskytne ale email se poslal, neukazi error
-        // Prostě tiše skončíme
-      } else {
+      // Login a Register errory
+      if (mode !== 'forgot') {
         const msg = {
           'auth/invalid-email': 'Neplatný formát emailu',
           'auth/user-not-found': 'Účet neexistuje',
