@@ -12,15 +12,17 @@ Tento projekt používá **Dockerfile** pro budování aplikace s Podman. Podman
 ### 1. Build image
 ```bash
 podman build -t evidence-vydaju:latest \
-  --build-arg VITE_FIREBASE_API_KEY=AIzaSyA7lrVXLwJjMIYocOg4hWRSTIzBo7M3YtE \
-  --build-arg VITE_FIREBASE_AUTH_DOMAIN=evidence-vydaju.firebaseapp.com \
-  --build-arg VITE_FIREBASE_PROJECT_ID=evidence-vydaju \
-  --build-arg VITE_FIREBASE_STORAGE_BUCKET=evidence-vydaju.firebasestorage.app \
-  --build-arg VITE_FIREBASE_MESSAGING_SENDER_ID=153586307551 \
-  --build-arg VITE_FIREBASE_APP_ID=1:153586307551:web:814a28a53285f377c8b46a \
-  --build-arg VITE_ADMIN_EMAIL=danzby@seznam.cz \
+  --build-arg VITE_FIREBASE_API_KEY=your_firebase_api_key \
+  --build-arg VITE_FIREBASE_AUTH_DOMAIN=your_firebase_auth_domain \
+  --build-arg VITE_FIREBASE_PROJECT_ID=your_firebase_project_id \
+  --build-arg VITE_FIREBASE_STORAGE_BUCKET=your_firebase_storage_bucket \
+  --build-arg VITE_FIREBASE_MESSAGING_SENDER_ID=your_messaging_sender_id \
+  --build-arg VITE_FIREBASE_APP_ID=your_firebase_app_id \
+  --build-arg VITE_ADMIN_EMAIL=your_admin_email@example.com \
   .
 ```
+
+> Najdi skutečné hodnoty v `src/config/firebase-config.js` a GitHub Secrets!
 
 ### 2. Run container
 ```bash
@@ -52,15 +54,17 @@ npm run dev
 ### Build pro produkci
 ```bash
 podman build -t evidence-vydaju:prod \
-  --build-arg VITE_FIREBASE_API_KEY=... \
-  --build-arg VITE_FIREBASE_AUTH_DOMAIN=... \
-  --build-arg VITE_FIREBASE_PROJECT_ID=... \
-  --build-arg VITE_FIREBASE_STORAGE_BUCKET=... \
-  --build-arg VITE_FIREBASE_MESSAGING_SENDER_ID=... \
-  --build-arg VITE_FIREBASE_APP_ID=... \
-  --build-arg VITE_ADMIN_EMAIL=... \
+  --build-arg VITE_FIREBASE_API_KEY=your_key_here \
+  --build-arg VITE_FIREBASE_AUTH_DOMAIN=your_domain_here \
+  --build-arg VITE_FIREBASE_PROJECT_ID=your_project_id_here \
+  --build-arg VITE_FIREBASE_STORAGE_BUCKET=your_bucket_here \
+  --build-arg VITE_FIREBASE_MESSAGING_SENDER_ID=your_sender_id_here \
+  --build-arg VITE_FIREBASE_APP_ID=your_app_id_here \
+  --build-arg VITE_ADMIN_EMAIL=your_email_here \
   .
 ```
+
+> Nahraď placeholders skutečnými hodnotami z Firebase konzole!
 
 ### Test v kontejneru (jako produkce)
 ```bash
