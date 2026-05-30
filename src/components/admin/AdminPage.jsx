@@ -78,7 +78,9 @@ export const AdminPage = () => {
     if (!window.confirm(`Opravdu smazat účet ${email}? Všechna data budou trvale smazána!`)) return;
 
     try {
-      const idToken = await session.uid && auth.currentUser?.getIdToken();
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) throw new Error('Nemáš oprávnění');
+
       const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
       const url = `https://europe-west1-${projectId}.cloudfunctions.net/smazUzivatele`;
 
@@ -88,19 +90,24 @@ export const AdminPage = () => {
         body: JSON.stringify({ uid, idToken }),
       });
 
-      if (!response.ok) throw new Error('Chyba při smazání uživatele');
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'Chyba při smazání uživatele');
+      }
 
       setUsers((prev) => prev.filter((u) => u.uid !== uid));
       toast.success(`Uživatel ${email} smazán`);
     } catch (err) {
       console.error('Delete error:', err);
-      toast.error('Chyba při smazání uživatele');
+      toast.error(err.message || 'Chyba při smazání uživatele');
     }
   };
 
   const handleBlockUser = async (uid, currentDisabled) => {
     try {
-      const idToken = await session.uid && auth.currentUser?.getIdToken();
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) throw new Error('Nemáš oprávnění');
+
       const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
       const url = `https://europe-west1-${projectId}.cloudfunctions.net/zablokujUzivatele`;
 
@@ -110,7 +117,10 @@ export const AdminPage = () => {
         body: JSON.stringify({ uid, blocked: !currentDisabled, idToken }),
       });
 
-      if (!response.ok) throw new Error('Chyba při blokování uživatele');
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'Chyba při blokování uživatele');
+      }
 
       setUsers((prev) =>
         prev.map((u) => (u.uid === uid ? { ...u, disabled: !currentDisabled } : u))
@@ -118,7 +128,7 @@ export const AdminPage = () => {
       toast.success(!currentDisabled ? 'Uživatel blokován' : 'Uživatel odblokován');
     } catch (err) {
       console.error('Block error:', err);
-      toast.error('Chyba při blokování uživatele');
+      toast.error(err.message || 'Chyba při blokování uživatele');
     }
   };
 
@@ -134,7 +144,9 @@ export const AdminPage = () => {
     }
 
     try {
-      const idToken = await session.uid && auth.currentUser?.getIdToken();
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) throw new Error('Nemáš oprávnění');
+
       const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
       const url = `https://europe-west1-${projectId}.cloudfunctions.net/aktualizujUzivatele`;
 
@@ -144,7 +156,10 @@ export const AdminPage = () => {
         body: JSON.stringify({ uid, username: newUsername, idToken }),
       });
 
-      if (!response.ok) throw new Error('Chyba při editaci uživatele');
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'Chyba při editaci uživatele');
+      }
 
       setUsers((prev) =>
         prev.map((u) => (u.uid === uid ? { ...u, username: newUsername } : u))
@@ -153,7 +168,7 @@ export const AdminPage = () => {
       toast.success(`Jméno změněno na: ${newUsername}`);
     } catch (err) {
       console.error('Edit error:', err);
-      toast.error('Chyba při editaci uživatele');
+      toast.error(err.message || 'Chyba při editaci uživatele');
     }
   };
 
