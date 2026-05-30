@@ -6,6 +6,23 @@ import { collection, getDocs, deleteDoc, doc } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 
+const callCloudFunction = async (url, method = 'GET') => {
+  const token = await auth.currentUser?.getIdToken();
+  if (!token) throw new Error('Nejsi přihlášen');
+
+  const response = await fetch(url, {
+    method,
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+  });
+
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || 'Chyba v požadavku');
+  return data;
+};
+
 export const PendingTransactions = () => {
   const { session } = useAuth();
   const [pendingList, setPendingList] = useState([]);
@@ -43,32 +60,10 @@ export const PendingTransactions = () => {
   const handleDebug = async () => {
     setDebugging(true);
     try {
-      const token = await auth.currentUser?.getIdToken();
-      if (!token) {
-        toast.error('Nejsi přihlášen');
-        return;
-      }
-
-      const response = await fetch(
-        'https://europe-west1-evidence-vydaju.cloudfunctions.net/debugRecurring',
-        {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        }
+      const data = await callCloudFunction(
+        'https://europe-west1-evidence-vydaju.cloudfunctions.net/debugRecurring'
       );
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Chyba při debugování');
-      }
-
-      console.log('🐛 DEBUG DATA:', data);
-
-      // Zobraz problém
       if (data.recurringCount === 0) {
         toast.error('❌ Nemáš žádné opakující se transakce! Vytvoř si jednu (⏰ tlačítko)');
       } else {
@@ -78,8 +73,7 @@ export const PendingTransactions = () => {
         );
       }
     } catch (err) {
-      console.error('Chyba:', err);
-      toast.error(err.message || 'Chyba při debugování');
+      toast.error(err.message);
     } finally {
       setDebugging(false);
     }
@@ -89,42 +83,20 @@ export const PendingTransactions = () => {
   const handleCleanup = async () => {
     setCleaning(true);
     try {
-      const token = await auth.currentUser?.getIdToken();
-      if (!token) {
-        toast.error('Nejsi přihlášen');
-        return;
-      }
-
-      const response = await fetch(
+      const data = await callCloudFunction(
         'https://europe-west1-evidence-vydaju.cloudfunctions.net/cleanupDuplicates',
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        }
+        'POST'
       );
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Chyba při čistění');
-      }
-
-      toast.success(
-        `🧹 ${data.message}\n✓ Smazáno ${data.deleted}, opraveno ${data.fixed}`
-      );
+      toast.success(`🧹 ${data.message}\n✓ Smazáno ${data.deleted}, opraveno ${data.fixed}`);
 
       // Znovu načti pending
       const snap = await getDocs(
         collection(db, 'users', session.uid, 'pendingTransactions')
       );
-      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      setPendingList(list);
+      setPendingList(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     } catch (err) {
-      console.error('Chyba:', err);
-      toast.error(err.message || 'Chyba při čistění');
+      toast.error(err.message);
     } finally {
       setCleaning(false);
     }
@@ -134,28 +106,10 @@ export const PendingTransactions = () => {
   const handleGenerateTest = async () => {
     setGenerating(true);
     try {
-      const token = await auth.currentUser?.getIdToken();
-      if (!token) {
-        toast.error('Nejsi přihlášen');
-        return;
-      }
-
-      const response = await fetch(
+      const data = await callCloudFunction(
         'https://europe-west1-evidence-vydaju.cloudfunctions.net/testGenerateRecurring',
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        }
+        'POST'
       );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Chyba při generování');
-      }
 
       toast.success(data.message);
 
@@ -164,12 +118,10 @@ export const PendingTransactions = () => {
         const snap = await getDocs(
           collection(db, 'users', session.uid, 'pendingTransactions')
         );
-        const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        setPendingList(list);
+        setPendingList(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
       }
     } catch (err) {
-      console.error('Chyba:', err);
-      toast.error(err.message || 'Chyba při generování');
+      toast.error(err.message);
     } finally {
       setGenerating(false);
     }
