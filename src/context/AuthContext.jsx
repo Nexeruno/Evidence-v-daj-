@@ -129,20 +129,23 @@ export const AuthProvider = ({ children }) => {
     const url = `https://europe-west1-${projectId}.cloudfunctions.net/posliResetHesla`;
 
     try {
-      console.log('Volám posliResetHesla Cloud Function na:', url);
+      console.log('Volám posliResetHesla Cloud Function...');
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: trimmedEmail }),
       });
 
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Chyba při odesílání resetů hesla');
+      const data = await response.json();
+
+      // Pokud se email poslal (ok: true), považuj to za úspěch i když je HTTP error
+      if (data.ok === true || response.status === 200) {
+        console.log('✓ Reset hesla úspěšně odeslán');
+        return;
       }
 
-      const result = await response.json();
-      console.log('Reset hesla úspěšně odeslán:', result);
+      // Jinak vrať error
+      throw new Error(data.error || 'Chyba při odesílání resetů hesla');
     } catch (err) {
       console.error('resetPassword error:', err);
       throw err;

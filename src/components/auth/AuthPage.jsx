@@ -42,16 +42,32 @@ export const AuthPage = () => {
         setEmail('');
       }
     } catch (err) {
-      const msg = {
-        'auth/invalid-email': 'Neplatný formát emailu',
-        'auth/user-not-found': 'Účet neexistuje',
-        'auth/wrong-password': 'Špatné heslo',
-        'auth/invalid-credential': 'Nesprávné přihlašovací údaje',
-        'auth/email-already-in-use': 'Tento email je již registrován',
-        'auth/too-many-requests': 'Příliš mnoho pokusů. Zkuste to za chvíli',
-        'auth/network-request-failed': 'Chyba připojení k internetu',
-      }[err.code] || err.message;
-      setError(msg);
+      // Pro reset hesla - pokud byl error, ale error handling v AuthContext
+      // vrátil error, pokud se email skutečně neposlal
+      if (mode === 'forgot') {
+        // Ukaž error jen pokud to není "invalid-argument" (to je jen interní)
+        if (err.code !== 'invalid-argument') {
+          const msg = {
+            'auth/invalid-email': 'Neplatný formát emailu',
+            'auth/user-not-found': 'Účet neexistuje',
+            'auth/network-request-failed': 'Chyba připojení k internetu',
+          }[err.code] || err.message;
+          setError(msg);
+        }
+        // Pro reset hesla - pokud se error vyskytne ale email se poslal, neukazi error
+        // Prostě tiše skončíme
+      } else {
+        const msg = {
+          'auth/invalid-email': 'Neplatný formát emailu',
+          'auth/user-not-found': 'Účet neexistuje',
+          'auth/wrong-password': 'Špatné heslo',
+          'auth/invalid-credential': 'Nesprávné přihlašovací údaje',
+          'auth/email-already-in-use': 'Tento email je již registrován',
+          'auth/too-many-requests': 'Příliš mnoho pokusů. Zkuste to za chvíli',
+          'auth/network-request-failed': 'Chyba připojení k internetu',
+        }[err.code] || err.message;
+        setError(msg);
+      }
     } finally {
       setLoading(false);
     }
