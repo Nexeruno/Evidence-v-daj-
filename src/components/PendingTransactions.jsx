@@ -240,6 +240,8 @@ const TransactionSection = ({ title, icon: Icon, items, isEditing, editForm, onE
 
 export const PendingTransactions = () => {
   const { session } = useAuth();
+  const [userDoc, setUserDoc] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [pendingList, setPendingList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
@@ -251,6 +253,24 @@ export const PendingTransactions = () => {
 
   const addVydaj = useAppStore((s) => s.addVydaj);
   const addPrijem = useAppStore((s) => s.addPrijem);
+
+  // Check admin role
+  useEffect(() => {
+    if (!session?.uid) return;
+    const checkAdmin = async () => {
+      try {
+        const snap = await getDocs(collection(db, 'users'));
+        const doc = snap.docs.find(d => d.id === session.uid);
+        if (doc) {
+          setUserDoc(doc.data());
+          setIsAdmin(doc.data()?.role === 'admin');
+        }
+      } catch (err) {
+        console.error('Error checking admin:', err);
+      }
+    };
+    checkAdmin();
+  }, [session?.uid]);
 
   // Load pending transactions
   const loadPending = useCallback(async () => {
@@ -437,6 +457,7 @@ export const PendingTransactions = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Auto-refresh pro všechny */}
           <button
             onClick={() => setAutoRefreshEnabled(!autoRefreshEnabled)}
             className={`p-2 rounded transition ${
@@ -449,35 +470,40 @@ export const PendingTransactions = () => {
             <RefreshCw size={18} />
           </button>
 
-          <button
-            onClick={handleDebug}
-            disabled={debugging}
-            className="flex items-center gap-2 px-3 py-1.5 text-sm bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors disabled:opacity-60"
-            title="Diagnostika"
-          >
-            🐛
-            {debugging ? 'Diagnostika...' : 'Debug'}
-          </button>
+          {/* Admin-only tlačítka */}
+          {isAdmin && (
+            <>
+              <button
+                onClick={handleDebug}
+                disabled={debugging}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors disabled:opacity-60"
+                title="🔐 ADMIN ONLY - Diagnostika"
+              >
+                🐛
+                {debugging ? 'Debug...' : 'Debug'}
+              </button>
 
-          <button
-            onClick={handleCleanup}
-            disabled={cleaning}
-            className="flex items-center gap-2 px-3 py-1.5 text-sm bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg transition-colors disabled:opacity-60"
-            title="Vyčistit duplikáty"
-          >
-            🧹
-            {cleaning ? 'Čištění...' : 'Cleanup'}
-          </button>
+              <button
+                onClick={handleCleanup}
+                disabled={cleaning}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg transition-colors disabled:opacity-60"
+                title="🔐 ADMIN ONLY - Vyčistit duplikáty"
+              >
+                🧹
+                {cleaning ? 'Cleanup...' : 'Cleanup'}
+              </button>
 
-          <button
-            onClick={handleGenerateTest}
-            disabled={generating}
-            className="flex items-center gap-2 px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-60"
-            title="Vygenerovat z opakujících se"
-          >
-            <Zap size={16} />
-            {generating ? 'Generuji...' : 'Test'}
-          </button>
+              <button
+                onClick={handleGenerateTest}
+                disabled={generating}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-60"
+                title="🔐 ADMIN ONLY - Vygenerovat test"
+              >
+                <Zap size={16} />
+                {generating ? 'Test...' : 'Test'}
+              </button>
+            </>
+          )}
         </div>
       </div>
 

@@ -414,6 +414,7 @@ exports.cleanupDuplicates = functions.region(REGION).https.onRequest(async (req,
     try {
       const token = req.headers.authorization?.split('Bearer ')[1];
       const decodedToken = await verifyAuth(token);
+      if (!(await verifyAdmin(decodedToken))) return res.status(403).json({ error: '🔐 Jen admin!' });
       const uid = decodedToken.uid;
 
       console.log(`🧹 CLEANUP: Spouštím pro uživatele ${uid}...`);
@@ -491,6 +492,7 @@ exports.debugRecurring = functions.region(REGION).https.onRequest(async (req, re
     try {
       const token = req.headers.authorization?.split('Bearer ')[1];
       const decodedToken = await verifyAuth(token);
+      if (!(await verifyAdmin(decodedToken))) return res.status(403).json({ error: '🔐 Jen admin!' });
       const uid = decodedToken.uid;
       const today = getTodayDate();
 
@@ -573,6 +575,15 @@ exports.healthCheck = functions.region(REGION).https.onRequest(async (req, res) 
 exports.metrics = functions.region(REGION).https.onRequest(async (req, res) => {
   cors(req, res, async () => {
     try {
+      // Check admin
+      const token = req.headers.authorization?.split('Bearer ')[1];
+      if (token) {
+        const decodedToken = await verifyAuth(token);
+        if (!(await verifyAdmin(decodedToken))) return res.status(403).json({ error: '🔐 Jen admin!' });
+      } else {
+        return res.status(401).json({ error: 'Autentifikace vyžadována' });
+      }
+
       const startTime = Date.now();
 
       // Počty
