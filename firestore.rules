@@ -1,0 +1,33 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Přistup k vlastním datům
+    match /users/{uid} {
+      allow read, write: if request.auth.uid == uid;
+
+      // Transakce (vydaje, prijmy)
+      match /vydaje/{document=**} {
+        allow read, write: if request.auth.uid == uid;
+      }
+      match /prijmy/{document=**} {
+        allow read, write: if request.auth.uid == uid;
+      }
+
+      // Opakující se transakce
+      match /repeatingTransactions/{document=**} {
+        allow read, write: if request.auth.uid == uid;
+      }
+
+      // Čekající transakce (pending)
+      match /pendingTransactions/{document=**} {
+        allow read, write: if request.auth.uid == uid;
+      }
+    }
+
+    // Usernames (pro ověření dostupnosti)
+    match /usernames/{document=**} {
+      allow read;
+      allow write: if request.auth != null;
+    }
+  }
+}
