@@ -581,15 +581,14 @@ export const DevOpsPanel = ({ onRepairsDashboard }) => {
           <Zap size={20} /> Quick Actions
         </h3>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {['debugRecurring', 'safeAutoRepairSystem', 'testGenerateRecurring'].map((fn) => (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {['debugRecurring', 'testGenerateRecurring'].map((fn) => (
             <div key={fn} className="space-y-2">
               <button
                 onClick={() => callCloudFunction(fn)}
                 className="w-full px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600 transition text-sm font-medium"
               >
                 {fn === 'debugRecurring' && '🔍 Debug Recurring'}
-                {fn === 'safeAutoRepairSystem' && '🔧 Safe Auto-Repair'}
                 {fn === 'testGenerateRecurring' && '🧪 Test Generate'}
               </button>
 
