@@ -11,8 +11,9 @@ import toast from 'react-hot-toast';
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
-const validateForm = (form, label) => {
-  if (!form.nazev?.trim()) return `Název ${label.toLowerCase()}e je povinný`;
+const validateForm = (form, label, isVydaj) => {
+  const locusCases = { 'Výdaj': 'výdaje', 'Příjem': 'příjmu' };
+  if (!form.nazev?.trim()) return `Název ${locusCases[label]} je povinný`;
   if (!form.castka || Number(form.castka) <= 0) return 'Částka musí být větší než 0';
   if (!form.datum) return 'Datum je povinné';
   if (!form.kategorie) return 'Kategorie je povinná';
@@ -40,7 +41,7 @@ const Form = ({ typ }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const error = validateForm(form, label);
+    const error = validateForm(form, label, isVydaj);
     if (error) {
       toast.error(error);
       return;
@@ -137,7 +138,7 @@ const Form = ({ typ }) => {
         <input
           ref={nazevRef}
           type="text"
-          placeholder={`Název ${label.toLowerCase()}e`}
+          placeholder={isVydaj ? 'Název výdaje' : 'Název příjmu'}
           className="input-field"
           value={form.nazev}
           onChange={set('nazev')}
