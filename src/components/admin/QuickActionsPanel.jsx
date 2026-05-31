@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Zap, PlayCircle, Bug, CheckCircle, AlertCircle, XCircle, Loader } from 'lucide-react';
+import { Zap, PlayCircle, Bug, CheckCircle, AlertCircle, XCircle, Loader, Wrench } from 'lucide-react';
 import { auth } from '../../utils/firebase';
 import { firebaseConfig } from '../../config/firebase-config';
 import toast from 'react-hot-toast';
@@ -127,7 +127,7 @@ export const QuickActionsPanel = ({ onClose }) => {
       </div>
 
       {/* Action Buttons */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {/* Test Generate */}
         <button
           onClick={() => executeAction('Test Generate', 'testGenerateRecurring')}
@@ -143,6 +143,25 @@ export const QuickActionsPanel = ({ onClose }) => {
             <h3 className="font-semibold">Test Generate</h3>
             <p className="text-sm text-light-textMuted dark:text-dark-textMuted mt-1">
               Vygeneruje testovací transakce z recurring
+            </p>
+          </div>
+        </button>
+
+        {/* Safe Auto-Repair */}
+        <button
+          onClick={() => executeAction('Safe Auto-Repair', 'safeAutoRepairSystem')}
+          disabled={loading}
+          className="card p-4 border-2 border-green-500 hover:bg-green-50 dark:hover:bg-green-900/20 transition disabled:opacity-50 flex flex-col items-center gap-2 text-center"
+        >
+          {currentAction === 'Safe Auto-Repair' && loading ? (
+            <Loader size={24} className="text-green-500 animate-spin" />
+          ) : (
+            <Wrench size={24} className="text-green-500" />
+          )}
+          <div>
+            <h3 className="font-semibold">Safe Auto-Repair</h3>
+            <p className="text-sm text-light-textMuted dark:text-dark-textMuted mt-1">
+              Detekuj a archivuj chyby (bez smazání)
             </p>
           </div>
         </button>
@@ -233,6 +252,10 @@ export const QuickActionsPanel = ({ onClose }) => {
           <li>
             <strong>Test Generate:</strong> Zkouší vygenerovat transakce z aktivních recurring
             (pro ověření, že se generují správně)
+          </li>
+          <li>
+            <strong>Safe Auto-Repair:</strong> Detekuje a archivuje chybné transakce (NIKDY NEMAZÁ!)
+            — opravuje invalid fields, archivuje do archivedProblems
           </li>
           <li>
             <strong>Debug Recurring:</strong> Vrátí diagnostiku — kolik je aktivních, kolik čekajících,

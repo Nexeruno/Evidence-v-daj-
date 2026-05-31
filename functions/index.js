@@ -806,3 +806,277 @@ exports.hourlyHealthMonitor = functions
     }
   });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🔧 SAFE AUTO-REPAIR SYSTEM - Detekce & Archivace (NIKDY NEMAZAT DATA!)
+// Spouští se každých 6 hodin: 0 0,6,12,18 * * *
+// ═══════════════════════════════════════════════════════════════════════════════
+
+exports.safeAutoRepairSystem = functions
+  .region(REGION)
+  .pubsub.schedule('0 0,6,12,18 * * *')
+  .timeZone('Europe/Prague')
+  .onRun(async () => {
+    const repairs = [];
+    const startTime = new Date();
+
+    try {
+      console.log('🔧 Spouštím safeAutoRepairSystem...');
+
+      const usersSnap = await db.collection('users').get();
+
+      // ─────────────────────────────────────────────────────────────────
+      // REPAIR 1: Detekuj a archivuj chybné PENDING transakce
+      // ─────────────────────────────────────────────────────────────────
+      try {
+        let archivedCount = 0;
+
+        for (const userDoc of usersSnap.docs) {
+          const pendingSnap = await db.collection('users')
+            .doc(userDoc.id)
+            .collection('pendingTransactions')
+            .get();
+
+          for (const doc of pendingSnap.docs) {
+            const data = doc.data();
+            const errors = [];
+
+            // Validuj fields
+            if (!data.title || !data.title.trim()) errors.push('missing_title');
+            if (!data.amount || data.amount <= 0) errors.push('invalid_amount');
+            if (!data.category) errors.push('missing_category');
+            if (!['vydaj', 'prijem'].includes(data.type)) errors.push('invalid_type');
+            if (!data.generatedDate) errors.push('missing_date');
+
+            // Pokud jsou chyby → ARCHIVUJ (ne smaž!)
+            if (errors.length > 0) {
+              await db.collection('users')
+                .doc(userDoc.id)
+                .collection('archivedProblems')
+                .doc(doc.id)
+                .set({
+                  ...data,
+                  archivedAt: admin.firestore.FieldValue.serverTimestamp(),
+                  reason: 'INVALID_PENDING_TRANSACTION',
+                  validationErrors: errors,
+                  originalId: doc.id,
+                  userId: userDoc.id,
+                });
+
+              // Smaž jen z pending (archiv už má kopii)
+              await doc.ref.delete();
+              archivedCount++;
+
+              console.log(`✓ Archivoval invalid pending: ${data.title || 'NO_TITLE'} (${errors.join(', ')})`);
+            }
+          }
+        }
+
+        if (archivedCount > 0) {
+          repairs.push({
+            type: 'ARCHIVE_INVALID_PENDING',
+            severity: 'warning',
+            count: archivedCount,
+            message: `Archivováno ${archivedCount} invalidních pending transakcí (bez smazání)`,
+          });
+        }
+      } catch (e) {
+        console.error('❌ Archive invalid pending failed:', e);
+        repairs.push({ type: 'ARCHIVE_INVALID_PENDING_FAIL', severity: 'error', message: e.message });
+      }
+
+      // ─────────────────────────────────────────────────────────────────
+      // REPAIR 2: Oprav CHYBNÉ RECURRING transakce (ne deaktivuj!)
+      // ─────────────────────────────────────────────────────────────────
+      try {
+        let fixedCount = 0;
+
+        for (const userDoc of usersSnap.docs) {
+          const recurSnap = await db.collection('users')
+            .doc(userDoc.id)
+            .collection('repeatingTransactions')
+            .get();
+
+          for (const doc of recurSnap.docs) {
+            const data = doc.data();
+            const updates = {};
+            const fixes = [];
+
+            // Fix chyby bez deaktivace!
+            if (!data.title || !data.title.trim()) {
+              updates.title = 'Bez názvu';
+              fixes.push('fixed_title');
+            }
+            if (!data.amount || data.amount <= 0) {
+              updates.amount = 0;
+              fixes.push('fixed_amount');
+            }
+            if (!data.category) {
+              updates.category = 'Ostatní';
+              fixes.push('fixed_category');
+            }
+            if (!['vydaj', 'prijem'].includes(data.type)) {
+              updates.type = 'vydaj';
+              fixes.push('fixed_type');
+            }
+            if (!data.recurrenceType || !['daily', 'weekly', 'monthly', 'yearly'].includes(data.recurrenceType)) {
+              updates.recurrenceType = 'monthly';
+              fixes.push('fixed_recurrence_type');
+            }
+            if (!data.recurrenceFrequency || data.recurrenceFrequency < 1) {
+              updates.recurrenceFrequency = 1;
+              fixes.push('fixed_frequency');
+            }
+            if (!data.isActive) {
+              updates.isActive = true;
+              fixes.push('reactivated');
+            }
+
+            if (fixes.length > 0) {
+              updates.lastRepaired = admin.firestore.FieldValue.serverTimestamp();
+              updates.repairHistory = admin.firestore.FieldValue.arrayUnion({
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                fixes: fixes,
+              });
+              await doc.ref.update(updates);
+              fixedCount++;
+
+              console.log(`✓ Opravil recurring: ${data.title || 'NO_TITLE'} (${fixes.join(', ')})`);
+            }
+          }
+        }
+
+        if (fixedCount > 0) {
+          repairs.push({
+            type: 'FIX_INVALID_RECURRING',
+            severity: 'info',
+            count: fixedCount,
+            message: `Opraveno ${fixedCount} opakujících se transakcí`,
+          });
+        }
+      } catch (e) {
+        console.error('❌ Fix recurring failed:', e);
+        repairs.push({ type: 'FIX_RECURRING_FAIL', severity: 'error', message: e.message });
+      }
+
+      // ─────────────────────────────────────────────────────────────────
+      // REPAIR 3: Archivuj STARÉ PENDING (>48h) - bezpečně
+      // ─────────────────────────────────────────────────────────────────
+      try {
+        const cutoff48h = new Date(Date.now() - 172800000);
+        let oldArchivedCount = 0;
+
+        for (const userDoc of usersSnap.docs) {
+          const pendingSnap = await db.collection('users')
+            .doc(userDoc.id)
+            .collection('pendingTransactions')
+            .where('createdAt', '<', cutoff48h)
+            .get();
+
+          for (const doc of pendingSnap.docs) {
+            const data = doc.data();
+            await db.collection('users')
+              .doc(userDoc.id)
+              .collection('archivedProblems')
+              .doc(doc.id)
+              .set({
+                ...data,
+                archivedAt: admin.firestore.FieldValue.serverTimestamp(),
+                reason: 'OLD_PENDING_TRANSACTION_48H',
+                originalId: doc.id,
+                userId: userDoc.id,
+              });
+
+            await doc.ref.delete();
+            oldArchivedCount++;
+          }
+        }
+
+        if (oldArchivedCount > 0) {
+          repairs.push({
+            type: 'ARCHIVE_OLD_PENDING',
+            severity: 'info',
+            count: oldArchivedCount,
+            message: `Archivováno ${oldArchivedCount} starých pending transakcí (>48h)`,
+          });
+        }
+      } catch (e) {
+        console.error('❌ Archive old pending failed:', e);
+        repairs.push({ type: 'ARCHIVE_OLD_PENDING_FAIL', severity: 'error', message: e.message });
+      }
+
+      // ─────────────────────────────────────────────────────────────────
+      // REPAIR 4: Logguj vše do systemRepairs + pošli email
+      // ─────────────────────────────────────────────────────────────────
+      const hasRepairs = repairs.length > 0 && repairs.some(r => r.count > 0);
+
+      if (hasRepairs) {
+        const repairLog = {
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          duration: Date.now() - startTime.getTime(),
+          repairs,
+          totalRepairs: repairs.reduce((sum, r) => sum + (r.count || 0), 0),
+          status: repairs.some(r => r.severity === 'error') ? 'PARTIAL_SUCCESS' : 'SUCCESS',
+        };
+
+        const docId = new Date().toISOString();
+        await db.collection('systemRepairs').doc(docId).set(repairLog);
+        console.log(`✓ Repair log uložen: ${docId}`);
+
+        // Pošli email s detaily
+        const repairsHtml = repairs.map(r => `
+          <tr>
+            <td style="padding:12px;border-bottom:1px solid #e5e7eb">
+              <strong>${r.type}</strong><br>
+              ${r.message}<br>
+              <span style="color:#666;font-size:0.9em;">Počet: ${r.count || 0}</span>
+            </td>
+          </tr>
+        `).join('');
+
+        const emailHtml = `<!DOCTYPE html>
+<html lang="cs">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f3f6fb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">
+  <table width="100%" cellpadding="0" cellspacing="0">
+    <tr><td align="center" style="padding:40px 20px">
+      <table width="500" style="max-width:500px;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08)">
+        <tr>
+          <td style="background:linear-gradient(135deg,#3b82f6,#8b5cf6);padding:32px;text-align:center">
+            <div style="font-size:36px;margin-bottom:8px">🔧</div>
+            <h1 style="margin:0;color:#fff;font-size:22px;font-weight:700">Auto-Repair Report</h1>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:32px">
+            <h2 style="margin:0 0 12px;color:#1e293b;font-size:18px">Opraveno ${repairs.reduce((s, r) => s + (r.count || 0), 0)} položek</h2>
+            <p style="margin:0 0 20px;color:#64748b;line-height:1.6;font-size:14px">
+              ${new Date().toLocaleString('cs-CZ')}
+            </p>
+            <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden">
+              ${repairsHtml}
+            </table>
+            <p style="margin:24px 0 0;color:#94a3b8;font-size:13px;text-align:center;line-height:1.6">
+              💾 <strong>Všechny opravené položky jsou archivovány v archivedProblems kolekci.</strong><br>
+              Později se na ně můžeš podívat a ze chyb se učit.
+            </p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+        await sendEmail(ADMIN_EMAIL, '🔧 Evidence Výdajů — Auto-Repair Report', emailHtml);
+        console.log('✓ Email s reportem odeslán');
+      } else {
+        console.log('✓ Žádné opravy potřebné');
+      }
+
+      return null;
+    } catch (err) {
+      console.error('❌ safeAutoRepairSystem error:', err);
+      throw err;
+    }
+  });
+
