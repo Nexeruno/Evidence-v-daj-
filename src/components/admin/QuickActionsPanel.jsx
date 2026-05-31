@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Zap, PlayCircle, Trash2, Bug, CheckCircle, AlertCircle, XCircle, Loader } from 'lucide-react';
+import { auth } from '../../utils/firebase';
 import { firebaseConfig } from '../../config/firebase-config';
 import toast from 'react-hot-toast';
 
@@ -13,12 +14,18 @@ export const QuickActionsPanel = ({ onClose }) => {
     setCurrentAction(actionName);
 
     try {
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) throw new Error('Nemáš oprávnění');
+
       const projectId = firebaseConfig.projectId;
       const url = `https://europe-west1-${projectId}.cloudfunctions.net/${endpoint}`;
 
       const response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
+        },
         body: JSON.stringify({}),
       });
 
