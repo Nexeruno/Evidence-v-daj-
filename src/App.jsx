@@ -6,7 +6,6 @@ import { Header } from './components/Header';
 import { AuthPage } from './components/auth/AuthPage';
 import { AdminPage } from './components/admin/AdminPage';
 import { DevOpsPanel } from './components/admin/DevOpsPanel';
-import { SystemRepairDashboard } from './components/admin/SystemRepairDashboard';
 import { QuickActionsPanel } from './components/admin/QuickActionsPanel';
 import { FormVydaj } from './components/FormVydaj';
 import { FormPrijem } from './components/FormPrijem';
@@ -82,16 +81,6 @@ function AppContent() {
                   📊 Přehled
                 </button>
                 <button
-                  onClick={() => setDevopsTab('repairs')}
-                  className={`px-4 py-2 rounded-lg font-medium transition-all text-sm ${
-                    devopsTab === 'repairs'
-                      ? 'bg-green-500 text-white shadow-md'
-                      : 'bg-light-border dark:bg-dark-border text-light-text dark:text-dark-text hover:bg-light-card dark:hover:bg-dark-card'
-                  }`}
-                >
-                  🔧 Auto-Repair
-                </button>
-                <button
                   onClick={() => setDevopsTab('quickActions')}
                   className={`px-4 py-2 rounded-lg font-medium transition-all text-sm ${
                     devopsTab === 'quickActions'
@@ -105,14 +94,7 @@ function AppContent() {
 
               {/* DevOps Content */}
               {devopsTab === 'overview' && (
-                <DevOpsPanel
-                  onRepairsDashboard={() => setDevopsTab('repairs')}
-                />
-              )}
-              {devopsTab === 'repairs' && (
-                <SystemRepairDashboard
-                  onClose={() => setDevopsTab('overview')}
-                />
+                <DevOpsPanel />
               )}
               {devopsTab === 'quickActions' && (
                 <QuickActionsPanel
