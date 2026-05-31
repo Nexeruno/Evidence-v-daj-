@@ -825,64 +825,11 @@ exports.safeAutoRepairSystem = functions
       const usersSnap = await db.collection('users').get();
 
       // ─────────────────────────────────────────────────────────────────
-      // REPAIR 1: Detekuj a archivuj chybné PENDING transakce
+      // REPAIR 1: VYPNUTO - Detekuj a archivuj chybné PENDING transakce
+      // VYPNUTO: Pending se již NEarchivují ani NEMAŽOU! Příliš nebezpečné.
       // ─────────────────────────────────────────────────────────────────
-      try {
-        let archivedCount = 0;
-
-        for (const userDoc of usersSnap.docs) {
-          const pendingSnap = await db.collection('users')
-            .doc(userDoc.id)
-            .collection('pendingTransactions')
-            .get();
-
-          for (const doc of pendingSnap.docs) {
-            const data = doc.data();
-            const errors = [];
-
-            // Validuj fields
-            if (!data.title || !data.title.trim()) errors.push('missing_title');
-            if (!data.amount || data.amount <= 0) errors.push('invalid_amount');
-            if (!data.category) errors.push('missing_category');
-            if (!['vydaj', 'prijem'].includes(data.type)) errors.push('invalid_type');
-            if (!data.generatedDate) errors.push('missing_date');
-
-            // Pokud jsou chyby → ARCHIVUJ (ne smaž!)
-            if (errors.length > 0) {
-              await db.collection('users')
-                .doc(userDoc.id)
-                .collection('archivedProblems')
-                .doc(doc.id)
-                .set({
-                  ...data,
-                  archivedAt: admin.firestore.FieldValue.serverTimestamp(),
-                  reason: 'INVALID_PENDING_TRANSACTION',
-                  validationErrors: errors,
-                  originalId: doc.id,
-                  userId: userDoc.id,
-                });
-
-              // Smaž jen z pending (archiv už má kopii)
-              await doc.ref.delete();
-              archivedCount++;
-
-              console.log(`✓ Archivoval invalid pending: ${data.title || 'NO_TITLE'} (${errors.join(', ')})`);
-            }
-          }
-        }
-
-        if (archivedCount > 0) {
-          repairs.push({
-            type: 'ARCHIVE_INVALID_PENDING',
-            severity: 'warning',
-            count: archivedCount,
-            message: `Archivováno ${archivedCount} invalidních pending transakcí (bez smazání)`,
-          });
-        }
-      } catch (e) {
-        console.error('❌ Archive invalid pending failed:', e);
-        repairs.push({ type: 'ARCHIVE_INVALID_PENDING_FAIL', severity: 'error', message: e.message });
-      }
+      // (Funkce vypnuta po incidentu kdy se smazaly legit pending transakce)
+      // Uživatel si vůbec sám kontroluje pending a schvaluje je!
 
       // ─────────────────────────────────────────────────────────────────
       // REPAIR 2: Oprav CHYBNÉ RECURRING transakce (ne deaktivuj!)
@@ -959,50 +906,10 @@ exports.safeAutoRepairSystem = functions
       }
 
       // ─────────────────────────────────────────────────────────────────
-      // REPAIR 3: Archivuj STARÉ PENDING (>48h) - bezpečně
+      // REPAIR 3: VYPNUTO - Archivuj STARÉ PENDING (>48h)
+      // VYPNUTO: Staré pending se už nemažou! Ponecháváme je pro bezpečnost.
       // ─────────────────────────────────────────────────────────────────
-      try {
-        const cutoff48h = new Date(Date.now() - 172800000);
-        let oldArchivedCount = 0;
-
-        for (const userDoc of usersSnap.docs) {
-          const pendingSnap = await db.collection('users')
-            .doc(userDoc.id)
-            .collection('pendingTransactions')
-            .where('createdAt', '<', cutoff48h)
-            .get();
-
-          for (const doc of pendingSnap.docs) {
-            const data = doc.data();
-            await db.collection('users')
-              .doc(userDoc.id)
-              .collection('archivedProblems')
-              .doc(doc.id)
-              .set({
-                ...data,
-                archivedAt: admin.firestore.FieldValue.serverTimestamp(),
-                reason: 'OLD_PENDING_TRANSACTION_48H',
-                originalId: doc.id,
-                userId: userDoc.id,
-              });
-
-            await doc.ref.delete();
-            oldArchivedCount++;
-          }
-        }
-
-        if (oldArchivedCount > 0) {
-          repairs.push({
-            type: 'ARCHIVE_OLD_PENDING',
-            severity: 'info',
-            count: oldArchivedCount,
-            message: `Archivováno ${oldArchivedCount} starých pending transakcí (>48h)`,
-          });
-        }
-      } catch (e) {
-        console.error('❌ Archive old pending failed:', e);
-        repairs.push({ type: 'ARCHIVE_OLD_PENDING_FAIL', severity: 'error', message: e.message });
-      }
+      // (Funkce vypnuta po incidentu kdy se smazaly legit pending transakce)
 
       // ─────────────────────────────────────────────────────────────────
       // REPAIR 4: Logguj vše do systemRepairs + pošli email
