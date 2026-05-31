@@ -248,7 +248,6 @@ export const PendingTransactions = () => {
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState(null);
   const [generating, setGenerating] = useState(false);
-  const [cleaning, setCleaning] = useState(false);
   const [debugging, setDebugging] = useState(false);
 
   const addVydaj = useAppStore((s) => s.addVydaj);
@@ -320,24 +319,6 @@ export const PendingTransactions = () => {
       toast.error(err.message);
     } finally {
       setDebugging(false);
-    }
-  };
-
-  // Cleanup
-  const handleCleanup = async () => {
-    setCleaning(true);
-    try {
-      const data = await callCloudFunction(
-        'https://europe-west1-evidence-vydaju.cloudfunctions.net/cleanupDuplicates',
-        'POST'
-      );
-
-      toast.success(`🧹 ${data.message}\n✓ Smazáno ${data.deleted}, opraveno ${data.fixed}`);
-      loadPending();
-    } catch (err) {
-      toast.error(err.message);
-    } finally {
-      setCleaning(false);
     }
   };
 
@@ -481,16 +462,6 @@ export const PendingTransactions = () => {
               >
                 🐛
                 {debugging ? 'Debug...' : 'Debug'}
-              </button>
-
-              <button
-                onClick={handleCleanup}
-                disabled={cleaning}
-                className="flex items-center gap-2 px-3 py-1.5 text-sm bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg transition-colors disabled:opacity-60"
-                title="🔐 ADMIN ONLY - Vyčistit duplikáty"
-              >
-                🧹
-                {cleaning ? 'Cleanup...' : 'Cleanup'}
               </button>
 
               <button

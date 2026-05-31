@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Zap, PlayCircle, Trash2, Bug, CheckCircle, AlertCircle, XCircle, Loader } from 'lucide-react';
+import { Zap, PlayCircle, Bug, CheckCircle, AlertCircle, XCircle, Loader } from 'lucide-react';
 import { auth } from '../../utils/firebase';
 import { firebaseConfig } from '../../config/firebase-config';
 import toast from 'react-hot-toast';
@@ -127,7 +127,7 @@ export const QuickActionsPanel = ({ onClose }) => {
       </div>
 
       {/* Action Buttons */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {/* Test Generate */}
         <button
           onClick={() => executeAction('Test Generate', 'testGenerateRecurring')}
@@ -143,25 +143,6 @@ export const QuickActionsPanel = ({ onClose }) => {
             <h3 className="font-semibold">Test Generate</h3>
             <p className="text-sm text-light-textMuted dark:text-dark-textMuted mt-1">
               Vygeneruje testovací transakce z recurring
-            </p>
-          </div>
-        </button>
-
-        {/* Cleanup Duplicates */}
-        <button
-          onClick={() => executeAction('Cleanup Duplicates', 'cleanupDuplicates')}
-          disabled={loading}
-          className="card p-4 border-2 border-orange-500 hover:bg-orange-50 dark:hover:bg-orange-900/20 transition disabled:opacity-50 flex flex-col items-center gap-2 text-center"
-        >
-          {currentAction === 'Cleanup Duplicates' && loading ? (
-            <Loader size={24} className="text-orange-500 animate-spin" />
-          ) : (
-            <Trash2 size={24} className="text-orange-500" />
-          )}
-          <div>
-            <h3 className="font-semibold">Cleanup Duplicates</h3>
-            <p className="text-sm text-light-textMuted dark:text-dark-textMuted mt-1">
-              Najde a odstraní duplikáty
             </p>
           </div>
         </button>
@@ -252,10 +233,6 @@ export const QuickActionsPanel = ({ onClose }) => {
           <li>
             <strong>Test Generate:</strong> Zkouší vygenerovat transakce z aktivních recurring
             (pro ověření, že se generují správně)
-          </li>
-          <li>
-            <strong>Cleanup Duplicates:</strong> Hledá a odstraňuje duplicitní transakce na základě
-            data + částky + kategorie
           </li>
           <li>
             <strong>Debug Recurring:</strong> Vrátí diagnostiku — kolik je aktivních, kolik čekajících,
