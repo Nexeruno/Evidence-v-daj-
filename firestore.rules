@@ -3,7 +3,15 @@ service cloud.firestore {
   match /databases/{database}/documents {
     // Helper - kontrola admin role
     function isAdmin(uid) {
-      return get(/databases/$(database)/documents/users/$(uid)).data.role == 'admin';
+      return uid != null &&
+        get(/databases/$(database)/documents/users/$(uid)).data.role == 'admin';
+    }
+
+    // Helper - admin allow read (fallback)
+    function isAdminCanRead(uid) {
+      return uid != null &&
+        (get(/databases/$(database)/documents/users/$(uid)).data.role == 'admin' ||
+         request.auth.token.admin == true);
     }
 
     function isOwner(uid) {
@@ -38,12 +46,14 @@ service cloud.firestore {
 
     // System Alerts (admin monitoring)
     match /systemAlerts/{document=**} {
-      allow read, write: if isAdmin(request.auth.uid);
+      allow read: if request.auth != null;
+      allow write: if isAdmin(request.auth.uid);
     }
 
     // System Repairs (auto-healing tracking)
     match /systemRepairs/{document=**} {
-      allow read, write: if isAdmin(request.auth.uid);
+      allow read: if request.auth != null;
+      allow write: if isAdmin(request.auth.uid);
     }
 
     // Usernames (pro ověření dostupnosti)
