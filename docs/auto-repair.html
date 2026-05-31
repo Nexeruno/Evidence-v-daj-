@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Evidence Výdajů - Safe Auto-Repair System</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      line-height: 1.6;
+      color: #1f2937;
+      background: linear-gradient(135deg, #f3f6fb 0%, #e5e7eb 100%);
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    header {
+      background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+      color: white;
+      padding: 60px 40px;
+      border-radius: 16px;
+      margin-bottom: 40px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+    }
+
+    header h1 {
+      font-size: 2.5em;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+
+    header p {
+      font-size: 1.2em;
+      opacity: 0.95;
+    }
+
+    .emoji {
+      font-size: 1.2em;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 30px;
+      margin-bottom: 40px;
+    }
+
+    .card {
+      background: white;
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.07);
+      border-left: 4px solid #3b82f6;
+      transition: transform 0.3s, box-shadow 0.3s;
+    }
+
+    .card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 12px 20px rgba(0,0,0,0.15);
+    }
+
+    .card h3 {
+      font-size: 1.4em;
+      margin-bottom: 15px;
+      color: #1f2937;
+    }
+
+    .card p {
+      color: #6b7280;
+      margin-bottom: 15px;
+    }
+
+    .card ul {
+      list-style: none;
+      margin-left: 0;
+    }
+
+    .card li {
+      padding: 8px 0;
+      color: #6b7280;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    .card li:last-child {
+      border-bottom: none;
+    }
+
+    .card li:before {
+      content: "✓ ";
+      color: #10b981;
+      font-weight: bold;
+      margin-right: 8px;
+    }
+
+    .section {
+      background: white;
+      padding: 40px;
+      border-radius: 12px;
+      margin-bottom: 30px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.07);
+    }
+
+    .section h2 {
+      font-size: 2em;
+      margin-bottom: 20px;
+      color: #1f2937;
+      display: flex;
+      align-items: center;
+      gap: 15px;
+    }
+
+    .section h3 {
+      font-size: 1.5em;
+      margin-top: 25px;
+      margin-bottom: 15px;
+      color: #374151;
+    }
+
+    .section p {
+      color: #6b7280;
+      margin-bottom: 15px;
+      line-height: 1.8;
+    }
+
+    .section ul {
+      margin-left: 30px;
+      color: #6b7280;
+      margin-bottom: 15px;
+    }
+
+    .section li {
+      margin-bottom: 10px;
+    }
+
+    code {
+      background: #f3f4f6;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: 'Courier New', monospace;
+      color: #d97706;
+    }
+
+    pre {
+      background: #1f2937;
+      color: #e5e7eb;
+      padding: 20px;
+      border-radius: 8px;
+      overflow-x: auto;
+      margin: 20px 0;
+      line-height: 1.5;
+      font-size: 0.9em;
+    }
+
+    pre code {
+      background: none;
+      color: #e5e7eb;
+      padding: 0;
+    }
+
+    .status-box {
+      background: #f0fdf4;
+      border-left: 4px solid #10b981;
+      padding: 15px;
+      border-radius: 8px;
+      margin: 20px 0;
+      color: #166534;
+    }
+
+    .status-box.warning {
+      background: #fffbeb;
+      border-left-color: #f59e0b;
+      color: #92400e;
+    }
+
+    .status-box.danger {
+      background: #fef2f2;
+      border-left-color: #ef4444;
+      color: #991b1b;
+    }
+
+    .timeline {
+      position: relative;
+      padding-left: 30px;
+      margin: 20px 0;
+    }
+
+    .timeline:before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: #3b82f6;
+    }
+
+    .timeline-item {
+      margin-bottom: 20px;
+      position: relative;
+    }
+
+    .timeline-item:before {
+      content: '';
+      position: absolute;
+      left: -37px;
+      top: 5px;
+      width: 12px;
+      height: 12px;
+      background: #3b82f6;
+      border-radius: 50%;
+      border: 3px solid white;
+      box-shadow: 0 0 0 2px #3b82f6;
+    }
+
+    .timeline-item strong {
+      color: #1f2937;
+      display: block;
+      margin-bottom: 5px;
+    }
+
+    .timeline-item p {
+      color: #6b7280;
+      margin: 0;
+    }
+
+    footer {
+      text-align: center;
+      padding: 40px;
+      color: #6b7280;
+      border-top: 1px solid #e5e7eb;
+      margin-top: 60px;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 4px 12px;
+      background: #dbeafe;
+      color: #0369a1;
+      border-radius: 20px;
+      font-size: 0.85em;
+      margin-right: 10px;
+    }
+
+    .badge.success {
+      background: #dcfce7;
+      color: #166534;
+    }
+
+    a {
+      color: #3b82f6;
+      text-decoration: none;
+      border-bottom: 1px solid #3b82f6;
+      transition: opacity 0.3s;
+    }
+
+    a:hover {
+      opacity: 0.7;
+    }
+
+    .toc {
+      background: #f9fafb;
+      padding: 20px;
+      border-radius: 8px;
+      border-left: 4px solid #3b82f6;
+      margin: 20px 0;
+    }
+
+    .toc ul {
+      list-style: none;
+      margin: 0;
+      padding-left: 0;
+    }
+
+    .toc li {
+      margin: 8px 0;
+    }
+
+    .toc a {
+      border-bottom: none;
+      font-weight: 500;
+    }
+
+    .back-to-app {
+      display: inline-block;
+      margin-bottom: 20px;
+      padding: 10px 20px;
+      background: #3b82f6;
+      color: white;
+      border-radius: 8px;
+      text-decoration: none;
+      border-bottom: none;
+    }
+
+    .back-to-app:hover {
+      background: #2563eb;
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <a href="https://evidence-vydaju.web.app/" class="back-to-app">← Zpět na aplikaci</a>
+
+    <header>
+      <h1><span class="emoji">🔧</span> Safe Auto-Repair System</h1>
+      <p>Inteligentní debugování a archivace bez smazání dat</p>
+    </header>
+
+    <div class="grid">
+      <div class="card">
+        <h3>🎯 Účel</h3>
+        <p>Automaticky detekuje a opravuje chyby v datech bez jejich smazání.</p>
+        <ul>
+          <li>Detekuje invalid transakce</li>
+          <li>Opravuje chybná metadata</li>
+          <li>Archivuje pro analýzu</li>
+          <li>Logguje vše pro audit</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>⏰ Frekvence</h3>
+        <p>Běží automaticky každých 6 hodin.</p>
+        <ul>
+          <li>0:00 (půlnoc)</li>
+          <li>6:00 (ráno)</li>
+          <li>12:00 (poledne)</li>
+          <li>18:00 (večer)</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>🛡️ Bezpečnost</h3>
+        <p>Nikdy nemaže legitimní data.</p>
+        <ul>
+          <li>Archivuje místo smazání</li>
+          <li>Zachovává historii oprav</li>
+          <li>Bez detekce duplikátů</li>
+          <li>Plně auditovatelné</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2><span class="emoji">📋</span> Obsah Dokumentace</h2>
+      <div class="toc">
+        <ul>
+          <li><a href="#what">Co se detekuje a opravuje?</a></li>
+          <li><a href="#archive">Archivované kolekce</a></li>
+          <li><a href="#running">Spouštění</a></li>
+          <li><a href="#reports">Email reports</a></li>
+          <li><a href="#mlops">AI/MLOps benefity</a></li>
+          <li><a href="#technical">Technické detaily</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="section" id="what">
+      <h2><span class="emoji">📊</span> Co se detekuje a opravuje?</h2>
+
+      <h3>1️⃣ Invalid PENDING Transakce</h3>
+      <p>Detekuje pending transakce s chybějícími nebo neplatnými poli:</p>
+      <ul>
+        <li>Bez názvu (<code>missing_title</code>)</li>
+        <li>Bez nebo se zápornou částkou (<code>invalid_amount</code>)</li>
+        <li>Bez kategorie (<code>missing_category</code>)</li>
+        <li>Bez typu nebo špatný typ (<code>invalid_type</code>)</li>
+        <li>Bez data (<code>missing_date</code>)</li>
+      </ul>
+      <div class="status-box">
+        <strong>Akce:</strong> Archivuje do <code>users/{uid}/archivedProblems</code> s metadata. Zachovává všechna původní data!
+      </div>
+
+      <h3>2️⃣ Invalid RECURRING Transakce</h3>
+      <p>Detekuje opakující se transakce s chybnou konfigurací:</p>
+      <ul>
+        <li>Bez názvu</li>
+        <li>Se zápornou/nulovou částkou</li>
+        <li>Bez kategorie</li>
+        <li>S chybným typem (vydaj/prijem)</li>
+        <li>S chybnou frekvencí</li>
+      </ul>
+      <div class="status-box">
+        <strong>Akce:</strong> Opravuje na validní výchozí hodnoty. Přidává <code>repairHistory</code> s detaily. NIKDY je neminusuje!
+      </div>
+
+      <h3>3️⃣ Staré PENDING Transakce</h3>
+      <p>Detekuje pending transakce starší než 48 hodin:</p>
+      <ul>
+        <li>Nevyžádané/zapomenuté pending</li>
+        <li>Zašuměné UI</li>
+      </ul>
+      <div class="status-box">
+        <strong>Akce:</strong> Archivuje do <code>archivedProblems</code> pro pozdější analýzu.
+      </div>
+    </div>
+
+    <div class="section" id="archive">
+      <h2><span class="emoji">📦</span> Archivované Kolekce</h2>
+
+      <h3>users/{uid}/archivedProblems</h3>
+      <p>Obsahuje všechny archivované problematické transakce s metadaty:</p>
+      <pre><code>{
+  // Původní data transakce
+  title: "Nákup",
+  amount: 100,
+  category: "Jídlo",
+  type: "vydaj",
+
+  // Metadata archivace
+  archivedAt: Timestamp,
+  reason: "INVALID_PENDING_TRANSACTION" | "OLD_PENDING_TRANSACTION_48H",
+  validationErrors: ["missing_title", "invalid_amount"],
+  originalId: "doc-id",
+  userId: "uid"
+}</code></pre>
+
+      <h3>systemRepairs (globální log)</h3>
+      <p>Centrální log všech oprav provedených systemem:</p>
+      <pre><code>{
+  timestamp: Timestamp,
+  duration: 1234, // ms
+  repairs: [
+    {
+      type: "ARCHIVE_INVALID_PENDING",
+      severity: "warning",
+      count: 5,
+      message: "Archivováno 5 invalidních pending transakcí"
+    },
+    {
+      type: "FIX_INVALID_RECURRING",
+      severity: "info",
+      count: 2,
+      message: "Opraveno 2 opakujících se transakcí"
+    }
+  ],
+  totalRepairs: 7,
+  status: "SUCCESS"
+}</code></pre>
+    </div>
+
+    <div class="section" id="running">
+      <h2><span class="emoji">▶️</span> Spouštění</h2>
+
+      <h3>Automatické (Scheduled)</h3>
+      <p>Cloud Scheduler spustí funkci automaticky:</p>
+      <div class="status-box success">
+        <strong>Časy:</strong> 0:00, 6:00, 12:00, 18:00 (Prague timezone)<br>
+        <strong>Funkce:</strong> <code>safeAutoRepairSystem</code>
+      </div>
+
+      <h3>Manuální (UI)</h3>
+      <p>Spuštění z aplikace na vyžádání:</p>
+      <div class="timeline">
+        <div class="timeline-item">
+          <strong>1. Jdi na Dashboard</strong>
+          <p>V aplikaci klikni na ⚙️ (DevOps panel) - jen admin</p>
+        </div>
+        <div class="timeline-item">
+          <strong>2. Vyberi ⚡ Quick Actions</strong>
+          <p>Najdi sekci Quick Actions v DevOps panelu</p>
+        </div>
+        <div class="timeline-item">
+          <strong>3. Klikni 🔧 Safe Auto-Repair</strong>
+          <p>Spustí se ihned s live reportem a výsledky</p>
+        </div>
+      </div>
+
+      <h3>API (cURL)</h3>
+      <pre><code>curl -X POST \
+  -H "Authorization: Bearer &lt;FIREBASE_ID_TOKEN&gt;" \
+  https://europe-west1-evidence-vydaju.cloudfunctions.net/safeAutoRepairSystem</code></pre>
+    </div>
+
+    <div class="section" id="reports">
+      <h2><span class="emoji">📧</span> Email Reports</h2>
+      <p>Když se něco opraví, přijde email s detaily na <code>danzby@seznam.cz</code>:</p>
+      <div class="status-box success">
+        <strong>Obsah emailu:</strong>
+        <ul style="margin-top: 10px; margin-left: 20px;">
+          <li>📊 Počet opravených položek</li>
+          <li>📋 Seznam co bylo opraveno</li>
+          <li>🔗 Link do DevOps panelu</li>
+          <li>⏱️ Čas a trvání operace</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="section" id="mlops">
+      <h2><span class="emoji">🤖</span> AI/MLOps Benefity</h2>
+      <p>Všechny archivované problémy si můžete později použít k:</p>
+      <ul>
+        <li>🧠 <strong>Trénování ML modelů</strong> - detekce chyb a anomálií</li>
+        <li>📊 <strong>Analýza vzorů</strong> - co se nejčastěji pokazí u kterých uživatelů</li>
+        <li>📈 <strong>Zlepšování validace</strong> - podle skutečných chyb z produkce</li>
+        <li>🔍 <strong>Compliance & Audit</strong> - úplný záznam všech akcí se časy</li>
+        <li>🎯 <strong>Prediktivní údržba</strong> - předpověď budoucích problémů</li>
+      </ul>
+    </div>
+
+    <div class="section" id="technical">
+      <h2><span class="emoji">🛠️</span> Technické Detaily</h2>
+
+      <h3>Bezpečnostní Guardrails</h3>
+      <div class="status-box danger">
+        <strong>NIKDY se neděje:</strong>
+        <ul style="margin-top: 10px; margin-left: 20px;">
+          <li>❌ Smazání plateb (jen archivace)</li>
+          <li>❌ Detekce duplikátů (příliš nebezpečné)</li>
+          <li>❌ Smazání vydajů/příjmů</li>
+          <li>❌ Tichá deaktivace aktivních recurring</li>
+          <li>❌ Mazání bez zálohování</li>
+        </ul>
+      </div>
+
+      <h3>Úpravy Recurring Transakcí</h3>
+      <p>Když se opravují opakující se transakce:</p>
+      <pre><code>// Automaticky se opravují chyby
+- Chybí category? → "Ostatní"
+- Chybí type? → "vydaj"
+- Chybná frequency? → 1
+- Chybí title? → "Bez názvu"
+
+// Vždy se zachovává:
+- isActive stav
+- lastGeneratedDate
+- Celková struktura
+
+// Přidá se:
+- lastRepaired: timestamp
+- repairHistory: [
+    {
+      timestamp,
+      fixes: ["fixed_title", "fixed_category"]
+    }
+  ]</code></pre>
+
+      <h3>Výkon</h3>
+      <ul>
+        <li>Procesuje všechny uživatele paralelně (batching)</li>
+        <li>Jeden záznam ~ 5-10ms</li>
+        <li>Celková doba ~ 30-60 sekund pro 1000+ transakcí</li>
+        <li>Neblokuje aplikaci (background job)</li>
+      </ul>
+    </div>
+
+    <div class="section">
+      <h2><span class="emoji">📚</span> Další Zdroje</h2>
+      <ul>
+        <li>📄 <a href="https://github.com/Nexeruno/Evidence-v-daj-/blob/main/DEVOPS.md" target="_blank">DEVOPS.md</a> - Úplný DevOps guide (GitHub)</li>
+        <li>💻 <a href="https://github.com/Nexeruno/Evidence-v-daj-" target="_blank">GitHub Repozitář</a> - Zdrojový kód</li>
+        <li>🌐 <a href="https://evidence-vydaju.web.app/" target="_blank">Evidence Výdajů</a> - Live aplikace</li>
+        <li>🔐 <a href="https://nexeruno.github.io/Evidence-v-daj-/auto-repair.html" target="_blank">Tato stránka</a> - Dokumentace (GitHub Pages)</li>
+      </ul>
+    </div>
+
+    <footer>
+      <p>
+        <span class="badge success">v2.0.0</span>
+        <span class="badge">Safe Auto-Repair System</span>
+      </p>
+      <p style="margin-top: 15px; font-size: 0.9em;">
+        Evidence Výdajů • Safe Auto-Repair Documentation<br>
+        Poslední aktualizace: 2026-05-31 • <a href="https://github.com/Nexeruno/Evidence-v-daj-" target="_blank">GitHub</a>
+      </p>
+    </footer>
+  </div>
+</body>
+</html>
