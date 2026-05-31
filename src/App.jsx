@@ -5,6 +5,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { Header } from './components/Header';
 import { AuthPage } from './components/auth/AuthPage';
 import { AdminPage } from './components/admin/AdminPage';
+import { DevOpsPanel } from './components/admin/DevOpsPanel';
 import { FormVydaj } from './components/FormVydaj';
 import { FormPrijem } from './components/FormPrijem';
 import { FilterBarVydaj, FilterBarPrijem } from './components/FilterBar';
@@ -23,6 +24,7 @@ function AppContent() {
   const { session } = useAuth();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [showAdmin, setShowAdmin] = useState(false);
+  const [adminTab, setAdminTab] = useState('users');
 
   // Napojení Firestore real-time listenerů
   useFirestoreSync();
@@ -37,8 +39,29 @@ function AppContent() {
       <>
         <Header onAdminClick={handleAdminClick} showingAdmin={true} />
         <main className="max-w-6xl mx-auto px-4 py-6">
-          <h2 className="text-2xl font-bold mb-5">Admin panel</h2>
-          <AdminPage />
+          <div className="flex gap-2 mb-6">
+            <button
+              onClick={() => setAdminTab('users')}
+              className={`px-5 py-2 rounded-lg font-medium transition-all text-sm ${
+                adminTab === 'users'
+                  ? 'bg-blue-500 text-white shadow-md'
+                  : 'bg-light-bg dark:bg-dark-bg text-light-text dark:text-dark-text hover:bg-light-border dark:hover:bg-dark-border'
+              }`}
+            >
+              👥 Uživatelé
+            </button>
+            <button
+              onClick={() => setAdminTab('devops')}
+              className={`px-5 py-2 rounded-lg font-medium transition-all text-sm ${
+                adminTab === 'devops'
+                  ? 'bg-blue-500 text-white shadow-md'
+                  : 'bg-light-bg dark:bg-dark-bg text-light-text dark:text-dark-text hover:bg-light-border dark:hover:bg-dark-border'
+              }`}
+            >
+              🛠️ DevOps
+            </button>
+          </div>
+          {adminTab === 'users' ? <AdminPage /> : <DevOpsPanel />}
         </main>
       </>
     );
