@@ -123,8 +123,13 @@ const TransactionRow = ({ pending, isEditing, editForm, onEdit, onSave, onCancel
             onChange={(e) => onEdit({ ...editForm, amount: e.target.value })}
           />
         </td>
-        <td className="py-3 px-4 text-sm text-light-textMuted dark:text-dark-textMuted">
-          {editForm.category}
+        <td className="py-3 px-4 text-sm">
+          <input
+            type="date"
+            className="input-field text-sm"
+            value={editForm.date}
+            onChange={(e) => onEdit({ ...editForm, date: e.target.value })}
+          />
         </td>
         <td className="py-3 px-4 text-center">
           <div className="flex items-center justify-center gap-2">
@@ -153,6 +158,9 @@ const TransactionRow = ({ pending, isEditing, editForm, onEdit, onSave, onCancel
       <td className="py-3 px-4 font-medium">{pending.title}</td>
       <td className="py-3 px-4 text-right font-medium">
         {pending.amount.toLocaleString('cs-CZ')} Kč
+      </td>
+      <td className="py-3 px-4 text-sm text-light-textMuted dark:text-dark-textMuted">
+        {formatDate(pending.generatedDate)}
       </td>
       <td className="py-3 px-4 text-sm text-light-textMuted dark:text-dark-textMuted">
         <span className="inline-block bg-light-border dark:bg-dark-border px-2 py-1 rounded">
@@ -210,6 +218,7 @@ const TransactionSection = ({ title, icon: Icon, items, isEditing, editForm, onE
             <tr className="border-b border-light-border dark:border-dark-border text-left text-light-textMuted dark:text-dark-textMuted text-xs uppercase tracking-wider">
               <th className="pb-2 font-semibold">Název</th>
               <th className="pb-2 font-semibold text-right">Částka</th>
+              <th className="pb-2 font-semibold">Datum</th>
               <th className="pb-2 font-semibold">Kategorie</th>
               <th className="pb-2 font-semibold text-center">Akce</th>
             </tr>
@@ -333,13 +342,16 @@ export const PendingTransactions = () => {
 
   // Edit handler
   const handleEditStart = (pending) => {
+    const dateValue = pending.generatedDate?.toDate?.()?.toISOString()?.slice(0, 10)
+      || (typeof pending.generatedDate === 'string' ? pending.generatedDate : new Date().toISOString().slice(0, 10));
+
     setEditingId(pending.id);
     setEditForm({
       title: pending.title,
       amount: pending.amount,
       category: pending.category,
       type: pending.type,
-      date: pending.generatedDate?.toDate?.()?.toISOString()?.slice(0, 10) || new Date().toISOString().slice(0, 10),
+      date: dateValue,
     });
   };
 
@@ -356,11 +368,14 @@ export const PendingTransactions = () => {
   // Approve handler
   const handleApprove = async (pending) => {
     try {
+      const dateValue = pending.generatedDate?.toDate?.()?.toISOString()?.slice(0, 10)
+        || (typeof pending.generatedDate === 'string' ? pending.generatedDate : new Date().toISOString().slice(0, 10));
+
       const addFn = pending.type === 'vydaj' ? addVydaj : addPrijem;
       await addFn({
         nazev: pending.title,
         castka: pending.amount,
-        datum: pending.generatedDate?.toDate?.()?.toISOString()?.slice(0, 10) || new Date().toISOString().slice(0, 10),
+        datum: dateValue,
         kategorie: pending.category,
       });
 
@@ -388,11 +403,13 @@ export const PendingTransactions = () => {
   // Save edit handler
   const handleEditSave = async (pending) => {
     try {
+      const finalDate = editForm.date || pending.generatedDate?.toDate?.()?.toISOString()?.slice(0, 10) || new Date().toISOString().slice(0, 10);
+
       const addFn = editForm.type === 'vydaj' ? addVydaj : addPrijem;
       await addFn({
         nazev: editForm.title,
         castka: parseFloat(editForm.amount),
-        datum: editForm.date,
+        datum: finalDate,
         kategorie: editForm.category,
       });
 
@@ -403,7 +420,7 @@ export const PendingTransactions = () => {
       setEditForm(null);
     } catch (err) {
       console.error('❌ Error saving edit:', err);
-      toast.error(err.message || 'Chyba při úpravě');
+      toast.error(err.message || 'Chyba při ukládání dat ve funkci "Čeka na schválení"');
     }
   };
 
