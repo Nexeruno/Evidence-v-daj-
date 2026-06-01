@@ -13,6 +13,7 @@ import {
 import { auth, db } from '../utils/firebase';
 import { firebaseConfig, adminEmail as ADMIN_EMAIL } from '../config/firebase-config';
 import { clearSessionCache } from '../hooks/useFirestoreSync';
+import { aiTracker } from '../utils/aiTracker';
 
 const AuthContext = createContext(null);
 
@@ -43,22 +44,26 @@ export const AuthProvider = ({ children }) => {
           }).catch(() => {});
         }
 
-        setSession({
+        const newSession = {
           uid: user.uid,
           email: user.email,
           username: profile.username || user.email,
           role: profile.role || 'user',
           isAdmin: user.email === ADMIN_EMAIL || profile.role === 'admin',
-        });
+        };
+        setSession(newSession);
+        aiTracker.init(user.uid);
       } catch {
         // Offline nebo chyba Firestore — základní session
-        setSession({
+        const offlineSession = {
           uid: user.uid,
           email: user.email,
           username: user.email,
           role: 'user',
           isAdmin: user.email === ADMIN_EMAIL,
-        });
+        };
+        setSession(offlineSession);
+        aiTracker.init(user.uid);
       }
     });
     return unsub;
@@ -158,7 +163,10 @@ export const AuthProvider = ({ children }) => {
 
   const logout = async () => {
     const uid = auth.currentUser?.uid;
-    if (uid) clearSessionCache(uid);
+    if (uid) {
+      clearSessionCache(uid);
+      await aiTracker.flush();
+    }
     useAppStore.getState().resetStore();
     await signOut(auth);
   };

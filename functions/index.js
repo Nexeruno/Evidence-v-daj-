@@ -73,6 +73,61 @@ const checkRateLimit = async (key, maxRequests = 3, windowMinutes = 10) => {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// 🔒 SECURITY - Audit Logging + Rate Limits for AI
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const logAdminAction = async (uid, action, details = {}) => {
+  try {
+    await db.collection('_auditLog').add({
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      adminUid: uid,
+      action,
+      details,
+    });
+  } catch (err) {
+    console.error('Audit log error:', err);
+  }
+};
+
+const checkAIRateLimit = async (uid, action, maxPerHour = 100) => {
+  const key = `ai-${action}-${uid}-${Math.floor(Date.now() / 3600000)}`;
+  return await checkRateLimit(key, maxPerHour, 60);
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🔐 IP WHITELISTING - Optional admin security layer
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const logAdminIP = async (uid, ipHash) => {
+  try {
+    const now = new Date();
+    const isoDate = now.toISOString().split('T')[0];
+    await db.collection('_adminIPLog').doc(`${uid}-${isoDate}`).set({
+      uid,
+      ipHash,
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      count: admin.firestore.FieldValue.increment(1),
+    }, { merge: true });
+  } catch (err) {
+    console.error('IP logging error:', err);
+  }
+};
+
+const extractClientIP = (req) => {
+  // Get IP from headers (works with CloudFlare, nginx, etc)
+  return req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
+         req.headers['x-client-ip'] ||
+         req.socket?.remoteAddress ||
+         'unknown';
+};
+
+const hashIP = (ip) => {
+  // Simple hash for privacy (don't store full IP)
+  const crypto = require('crypto');
+  return crypto.createHash('sha256').update(ip).digest('hex').substring(0, 16);
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // 📧 EMAIL TEMPLATES
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -825,4 +880,469 @@ exports.hourlyHealthMonitor = functions
       throw err;
     }
   });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🤖 AI DATA ANALYSIS - Analyze user behavior every 10 hours
+// ═══════════════════════════════════════════════════════════════════════════════
+
+exports.aiAnalyzeUsers = functions
+  .region(REGION)
+  .pubsub.schedule('0 */10 * * *')
+  .timeZone('Europe/Prague')
+  .onRun(async () => {
+    try {
+      console.log('🤖 Spouštím AI analýzu uživatelů...');
+      const usersSnap = await db.collection('users').get();
+      let analyzedCount = 0;
+
+      for (const userDoc of usersSnap.docs) {
+        const uid = userDoc.id;
+        const userData = userDoc.data();
+
+        // Check if user has any telemetry data
+        const sessionsSnap = await db.collection('aiTelemetry').doc(uid).collection('sessions').limit(1).get();
+        if (sessionsSnap.empty) continue;
+
+        try {
+          // Fetch all sessions (last 90 days)
+          const allSessionsSnap = await db.collection('aiTelemetry')
+            .doc(uid)
+            .collection('sessions')
+            .orderBy('startTime', 'desc')
+            .limit(100)
+            .get();
+
+          // Fetch all transactions
+          const transactionsSnap = await db.collection('aiTelemetry')
+            .doc(uid)
+            .collection('transactions')
+            .get();
+
+          // Aggregate data
+          const sessions = allSessionsSnap.docs.map(d => d.data());
+          const transactions = transactionsSnap.docs.map(d => d.data());
+
+          const stats = {
+            sessions: {
+              count: sessions.length,
+              avgDurationMs: sessions.length > 0
+                ? Math.round(sessions.reduce((s, session) => s + (session.durationMs || 0), 0) / sessions.length)
+                : 0,
+              totalTimeMs: sessions.reduce((s, session) => s + (session.durationMs || 0), 0),
+            },
+            tabs: {
+              dashboard: 0,
+              vydaje: 0,
+              prijmy: 0,
+            },
+            forms: {
+              avgFillTimeVydaj: 0,
+              avgFillTimePrijem: 0,
+              submitCountVydaj: 0,
+              submitCountPrijem: 0,
+            },
+            financial: {
+              totalTransactions: transactions.length,
+              categoryBreakdown: {},
+              preferredDayOfWeek: -1,
+              preferredHourOfDay: -1,
+            },
+            behavioral: {
+              avgClicksPerSession: 0,
+            },
+            lastAnalyzed: new Date(),
+          };
+
+          // Tab breakdown
+          sessions.forEach(session => {
+            if (session.tabDurations) {
+              stats.tabs.dashboard += session.tabDurations.dashboard || 0;
+              stats.tabs.vydaje += session.tabDurations.vydaje || 0;
+              stats.tabs.prijmy += session.tabDurations.prijmy || 0;
+            }
+          });
+
+          // Compute percentages
+          const totalTabTime = stats.tabs.dashboard + stats.tabs.vydaje + stats.tabs.prijmy;
+          if (totalTabTime > 0) {
+            stats.tabs.dashboardPercent = Math.round((stats.tabs.dashboard / totalTabTime) * 100);
+            stats.tabs.vydajePercent = Math.round((stats.tabs.vydaje / totalTabTime) * 100);
+            stats.tabs.prijmyPercent = Math.round((stats.tabs.prijmy / totalTabTime) * 100);
+          }
+
+          // Financial patterns
+          const dayOfWeekCounts = new Array(7).fill(0);
+          const hourOfDayCounts = new Array(24).fill(0);
+          const categoryCount = {};
+
+          transactions.forEach(t => {
+            if (t.category) {
+              categoryCount[t.category] = (categoryCount[t.category] || 0) + 1;
+            }
+            if (t.dayOfWeek !== undefined) {
+              dayOfWeekCounts[t.dayOfWeek]++;
+            }
+            if (t.hourOfDay !== undefined) {
+              hourOfDayCounts[t.hourOfDay]++;
+            }
+          });
+
+          stats.financial.categoryBreakdown = categoryCount;
+          stats.financial.preferredDayOfWeek = dayOfWeekCounts.indexOf(Math.max(...dayOfWeekCounts));
+          stats.financial.preferredHourOfDay = hourOfDayCounts.indexOf(Math.max(...hourOfDayCounts));
+
+          // Write aiInsights
+          await db.collection('aiInsights').doc(uid).set(stats, { merge: true });
+          analyzedCount++;
+          console.log(`✓ Analyzován uživatel: ${userData.username}`);
+        } catch (err) {
+          console.error(`Error analyzing user ${uid}:`, err);
+        }
+      }
+
+      console.log(`✅ AI analýza hotova. Analyzováno ${analyzedCount} uživatelů.`);
+      return { success: true, analyzed: analyzedCount };
+    } catch (err) {
+      console.error('❌ aiAnalyzeUsers error:', err);
+      return { success: false, error: err.message };
+    }
+  });
+
+exports.aiGetInsights = functions.region(REGION).https.onRequest(async (req, res) => {
+  cors(req, res, async () => {
+    try {
+      const token = req.headers.authorization?.split('Bearer ')[1];
+      const { uid } = req.body;
+
+      if (!token || !uid) {
+        return res.status(400).json({ error: 'Token a uid jsou povinné' });
+      }
+
+      if (typeof uid !== 'string' || uid.length > 128) {
+        return res.status(400).json({ error: 'Invalid uid format' });
+      }
+
+      const decodedToken = await verifyAuth(token);
+      if (!(await verifyAdmin(decodedToken))) {
+        return res.status(403).json({ error: '🔐 Jen admin!' });
+      }
+
+      // Rate limiting: max 50 requests per hour per user
+      const rateLimited = await checkAIRateLimit(decodedToken.uid, 'getInsights', 50);
+      if (!rateLimited) {
+        await logAdminAction(decodedToken.uid, 'aiGetInsights_BLOCKED', { reason: 'rate_limit' });
+        return res.status(429).json({ error: 'Příliš mnoho požadavků. Zkuste později.' });
+      }
+
+      // Audit log
+      await logAdminAction(decodedToken.uid, 'aiGetInsights', { targetUid: uid });
+
+      // Fetch insights for user
+      const insightsDoc = await db.collection('aiInsights').doc(uid).get();
+      const insights = insightsDoc.exists ? insightsDoc.data() : null;
+
+      // Fetch last 10 sessions
+      const sessionsSnap = await db.collection('aiTelemetry')
+        .doc(uid)
+        .collection('sessions')
+        .orderBy('startTime', 'desc')
+        .limit(10)
+        .get();
+
+      const sessions = sessionsSnap.docs.map(d => ({
+        id: d.id,
+        ...d.data(),
+      }));
+
+      res.status(200).json({
+        uid,
+        insights,
+        recentSessions: sessions,
+      });
+    } catch (err) {
+      console.error('aiGetInsights error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+});
+
+exports.aiGetAllInsights = functions.region(REGION).https.onRequest(async (req, res) => {
+  cors(req, res, async () => {
+    try {
+      const token = req.headers.authorization?.split('Bearer ')[1];
+      const clientIP = extractClientIP(req);
+      const ipHash = hashIP(clientIP);
+
+      if (!token) {
+        await logSecurityEvent('AUTH_FAILED', 'medium', { reason: 'no_token', ipHash });
+        return res.status(400).json({ error: 'Token je povinný' });
+      }
+
+      const decodedToken = await verifyAuth(token);
+      if (!(await verifyAdmin(decodedToken))) {
+        await logSecurityEvent('PRIVILEGE_DENIED', 'high', {
+          uid: decodedToken?.uid,
+          action: 'aiGetAllInsights',
+          ipHash
+        });
+        return res.status(403).json({ error: '🔐 Jen admin!' });
+      }
+
+      // Rate limiting: max 20 requests per hour per admin
+      const rateLimited = await checkAIRateLimit(decodedToken.uid, 'getAllInsights', 20);
+      if (!rateLimited) {
+        await logAdminAction(decodedToken.uid, 'aiGetAllInsights_BLOCKED', { reason: 'rate_limit', ipHash });
+        await logSecurityEvent('RATE_LIMIT_EXCEEDED', 'medium', {
+          uid: decodedToken.uid,
+          action: 'aiGetAllInsights',
+          ipHash
+        });
+        return res.status(429).json({ error: 'Příliš mnoho požadavků. Zkuste později.' });
+      }
+
+      // Log admin IP
+      await logAdminIP(decodedToken.uid, ipHash);
+
+      // Audit log
+      await logAdminAction(decodedToken.uid, 'aiGetAllInsights', { ipHash });
+      await logSecurityEvent('ADMIN_ACCESS', 'low', {
+        uid: decodedToken.uid,
+        action: 'aiGetAllInsights',
+        ipHash
+      });
+
+      // Fetch all insights
+      const insightsSnap = await db.collection('aiInsights').get();
+      const userDocsSnap = await db.collection('users').get();
+
+      const userMap = {};
+      userDocsSnap.docs.forEach(doc => {
+        userMap[doc.id] = doc.data();
+      });
+
+      const allInsights = insightsSnap.docs.map(doc => {
+        const data = doc.data();
+        const user = userMap[doc.id] || {};
+        return {
+          uid: doc.id,
+          username: user.username || 'Unknown',
+          email: user.email || 'Unknown',
+          lastAnalyzed: data.lastAnalyzed ? data.lastAnalyzed.toDate().toISOString() : null,
+          totalSessions: data.sessions?.count || 0,
+          mostUsedTab: getMostUsedTab(data.tabs),
+          totalTimeMinutes: Math.round((data.sessions?.totalTimeMs || 0) / 60000),
+        };
+      });
+
+      res.status(200).json({
+        allInsights,
+        totalUsers: allInsights.length,
+      });
+    } catch (err) {
+      console.error('aiGetAllInsights error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+});
+
+exports.aiUpdateConfig = functions.region(REGION).https.onRequest(async (req, res) => {
+  cors(req, res, async () => {
+    try {
+      const token = req.headers.authorization?.split('Bearer ')[1];
+      const { isEnabled } = req.body;
+
+      if (!token) {
+        return res.status(400).json({ error: 'Token je povinný' });
+      }
+
+      const decodedToken = await verifyAuth(token);
+      if (!(await verifyAdmin(decodedToken))) {
+        await logAdminAction(decodedToken?.uid, 'aiUpdateConfig_DENIED', { reason: 'not_admin' });
+        return res.status(403).json({ error: '🔐 Jen admin!' });
+      }
+
+      // Input validation
+      if (isEnabled !== undefined && typeof isEnabled !== 'boolean') {
+        return res.status(400).json({ error: 'isEnabled musí být boolean' });
+      }
+
+      // Rate limiting: max 10 per hour
+      const rateLimited = await checkAIRateLimit(decodedToken.uid, 'updateConfig', 10);
+      if (!rateLimited) {
+        return res.status(429).json({ error: 'Příliš mnoho požadavků.' });
+      }
+
+      const updates = {};
+      if (isEnabled !== undefined) updates.isEnabled = isEnabled;
+      if (Object.keys(updates).length > 0) {
+        updates.lastUpdated = new Date();
+        await db.collection('aiConfig').doc('global').set(updates, { merge: true });
+        await logAdminAction(decodedToken.uid, 'aiUpdateConfig', { updates });
+      }
+
+      res.status(200).json({ ok: true, config: updates });
+    } catch (err) {
+      console.error('aiUpdateConfig error:', err);
+      await logAdminAction(decodedToken?.uid, 'aiUpdateConfig_ERROR', { error: err.message });
+      res.status(500).json({ error: err.message });
+    }
+  });
+});
+
+exports.aiTriggerAnalysis = functions.region(REGION).https.onRequest(async (req, res) => {
+  cors(req, res, async () => {
+    try {
+      const token = req.headers.authorization?.split('Bearer ')[1];
+
+      if (!token) {
+        return res.status(400).json({ error: 'Token je povinný' });
+      }
+
+      const decodedToken = await verifyAuth(token);
+      if (!(await verifyAdmin(decodedToken))) {
+        return res.status(403).json({ error: '🔐 Jen admin!' });
+      }
+
+      // Rate limiting: max 5 triggers per hour per admin
+      const rateLimited = await checkAIRateLimit(decodedToken.uid, 'triggerAnalysis', 5);
+      if (!rateLimited) {
+        await logAdminAction(decodedToken.uid, 'aiTriggerAnalysis_BLOCKED', { reason: 'rate_limit' });
+        return res.status(429).json({ error: 'Příliš mnoho analýz. Max 5 za hodinu.' });
+      }
+
+      // Audit log
+      await logAdminAction(decodedToken.uid, 'aiTriggerAnalysis_START', {});
+
+      console.log('🤖 Admin manuálně spustil AI analýzu');
+      const usersSnap = await db.collection('users').get();
+      let analyzedCount = 0;
+
+      for (const userDoc of usersSnap.docs) {
+        const uid = userDoc.id;
+        const userData = userDoc.data();
+
+        const sessionsSnap = await db.collection('aiTelemetry').doc(uid).collection('sessions').limit(1).get();
+        if (sessionsSnap.empty) continue;
+
+        try {
+          const allSessionsSnap = await db.collection('aiTelemetry')
+            .doc(uid)
+            .collection('sessions')
+            .orderBy('startTime', 'desc')
+            .limit(100)
+            .get();
+
+          const transactionsSnap = await db.collection('aiTelemetry')
+            .doc(uid)
+            .collection('transactions')
+            .get();
+
+          const sessions = allSessionsSnap.docs.map(d => d.data());
+          const transactions = transactionsSnap.docs.map(d => d.data());
+
+          const stats = {
+            sessions: {
+              count: sessions.length,
+              avgDurationMs: sessions.length > 0
+                ? Math.round(sessions.reduce((s, session) => s + (session.durationMs || 0), 0) / sessions.length)
+                : 0,
+              totalTimeMs: sessions.reduce((s, session) => s + (session.durationMs || 0), 0),
+            },
+            tabs: {
+              dashboard: 0,
+              vydaje: 0,
+              prijmy: 0,
+            },
+            financial: {
+              totalTransactions: transactions.length,
+              categoryBreakdown: {},
+              preferredDayOfWeek: -1,
+              preferredHourOfDay: -1,
+            },
+            lastAnalyzed: new Date(),
+          };
+
+          sessions.forEach(session => {
+            if (session.tabDurations) {
+              stats.tabs.dashboard += session.tabDurations.dashboard || 0;
+              stats.tabs.vydaje += session.tabDurations.vydaje || 0;
+              stats.tabs.prijmy += session.tabDurations.prijmy || 0;
+            }
+          });
+
+          const totalTabTime = stats.tabs.dashboard + stats.tabs.vydaje + stats.tabs.prijmy;
+          if (totalTabTime > 0) {
+            stats.tabs.dashboardPercent = Math.round((stats.tabs.dashboard / totalTabTime) * 100);
+            stats.tabs.vydajePercent = Math.round((stats.tabs.vydaje / totalTabTime) * 100);
+            stats.tabs.prijmyPercent = Math.round((stats.tabs.prijmy / totalTabTime) * 100);
+          }
+
+          const dayOfWeekCounts = new Array(7).fill(0);
+          const hourOfDayCounts = new Array(24).fill(0);
+          const categoryCount = {};
+
+          transactions.forEach(t => {
+            if (t.category) {
+              categoryCount[t.category] = (categoryCount[t.category] || 0) + 1;
+            }
+            if (t.dayOfWeek !== undefined) {
+              dayOfWeekCounts[t.dayOfWeek]++;
+            }
+            if (t.hourOfDay !== undefined) {
+              hourOfDayCounts[t.hourOfDay]++;
+            }
+          });
+
+          stats.financial.categoryBreakdown = categoryCount;
+          stats.financial.preferredDayOfWeek = dayOfWeekCounts.indexOf(Math.max(...dayOfWeekCounts));
+          stats.financial.preferredHourOfDay = hourOfDayCounts.indexOf(Math.max(...hourOfDayCounts));
+
+          await db.collection('aiInsights').doc(uid).set(stats, { merge: true });
+          analyzedCount++;
+        } catch (err) {
+          console.error(`Error analyzing user ${uid}:`, err);
+        }
+      }
+
+      await logAdminAction(decodedToken.uid, 'aiTriggerAnalysis_COMPLETE', { analyzed: analyzedCount });
+      res.status(200).json({ ok: true, analyzed: analyzedCount });
+    } catch (err) {
+      console.error('aiTriggerAnalysis error:', err);
+      await logAdminAction(decodedToken?.uid, 'aiTriggerAnalysis_ERROR', { error: err.message });
+      res.status(500).json({ error: err.message });
+    }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🗑️ DATA RETENTION - Automatic cleanup based on config
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SECURITY EVENTS - Log to Firestore for dashboard
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const logSecurityEvent = async (eventType, severity, details) => {
+  try {
+    await db.collection('_securityEvents').add({
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      eventType,
+      severity,
+      details,
+    });
+  } catch (err) {
+    console.error('Security event logging error:', err);
+  }
+};
+
+// Helper: getMostUsedTab
+function getMostUsedTab(tabs) {
+  if (!tabs) return 'unknown';
+  const { dashboard = 0, vydaje = 0, prijmy = 0 } = tabs;
+  const max = Math.max(dashboard, vydaje, prijmy);
+  if (max === dashboard) return 'dashboard';
+  if (max === vydaje) return 'vydaje';
+  if (max === prijmy) return 'prijmy';
+  return 'unknown';
+}
 

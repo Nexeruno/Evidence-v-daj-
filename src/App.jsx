@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Toaster } from 'react-hot-toast';
 import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -7,6 +7,8 @@ import { AuthPage } from './components/auth/AuthPage';
 import { AdminPage } from './components/admin/AdminPage';
 import { DevOpsPanel } from './components/admin/DevOpsPanel';
 import { QuickActionsPanel } from './components/admin/QuickActionsPanel';
+import { AIPanel } from './components/admin/AIPanel';
+import { AuditAnalyticsPanel } from './components/admin/AuditAnalyticsPanel';
 import { FormVydaj } from './components/FormVydaj';
 import { FormPrijem } from './components/FormPrijem';
 import { FilterBarVydaj, FilterBarPrijem } from './components/FilterBar';
@@ -14,6 +16,7 @@ import { SeznamVydaj } from './components/SeznamVydaj';
 import { SeznamPrijem } from './components/SeznamPrijem';
 import { Dashboard } from './components/Dashboard';
 import { useFirestoreSync } from './hooks/useFirestoreSync';
+import { aiTracker } from './utils/aiTracker';
 
 const TABS = [
   { id: 'dashboard', label: '📊 Přehled' },
@@ -31,9 +34,23 @@ function AppContent() {
   // Napojení Firestore real-time listenerů
   useFirestoreSync();
 
+  // Track beforeunload to flush AI data
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      aiTracker.flushSync();
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
+
   const handleAdminClick = () => {
     setShowAdmin((v) => !v);
     setActiveTab('dashboard');
+  };
+
+  const handleTabChange = (newTab) => {
+    aiTracker.trackTabChange(newTab, activeTab);
+    setActiveTab(newTab);
   };
 
   if (showAdmin && session?.isAdmin) {
@@ -62,14 +79,24 @@ function AppContent() {
             >
               🛠️ DevOps
             </button>
+            <button
+              onClick={() => setAdminTab('ai')}
+              className={`px-5 py-2 rounded-lg font-medium transition-all text-sm ${
+                adminTab === 'ai'
+                  ? 'bg-blue-500 text-white shadow-md'
+                  : 'bg-light-bg dark:bg-dark-bg text-light-text dark:text-dark-text hover:bg-light-border dark:hover:bg-dark-border'
+              }`}
+            >
+              🤖 AI
+            </button>
           </div>
 
           {adminTab === 'users' ? (
             <AdminPage />
-          ) : (
+          ) : adminTab === 'devops' ? (
             <div>
               {/* DevOps Sub-tabs */}
-              <div className="flex gap-2 mb-4">
+              <div className="flex gap-2 mb-4 flex-wrap">
                 <button
                   onClick={() => setDevopsTab('overview')}
                   className={`px-4 py-2 rounded-lg font-medium transition-all text-sm ${
@@ -90,6 +117,16 @@ function AppContent() {
                 >
                   ⚡ Quick Actions
                 </button>
+                <button
+                  onClick={() => setDevopsTab('auditLog')}
+                  className={`px-4 py-2 rounded-lg font-medium transition-all text-sm ${
+                    devopsTab === 'auditLog'
+                      ? 'bg-green-500 text-white shadow-md'
+                      : 'bg-light-border dark:bg-dark-border text-light-text dark:text-dark-text hover:bg-light-card dark:hover:bg-dark-card'
+                  }`}
+                >
+                  📋 Audit Log
+                </button>
               </div>
 
               {/* DevOps Content */}
@@ -101,7 +138,12 @@ function AppContent() {
                   onClose={() => setDevopsTab('overview')}
                 />
               )}
+              {devopsTab === 'auditLog' && (
+                <AuditAnalyticsPanel />
+              )}
             </div>
+          ) : (
+            <AIPanel />
           )}
         </main>
       </>
@@ -116,7 +158,7 @@ function AppContent() {
           {TABS.map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => handleTabChange(tab.id)}
               aria-current={activeTab === tab.id ? 'page' : undefined}
               className={`px-5 py-2 rounded-lg font-medium transition-all text-sm sm:text-base ${
                 activeTab === tab.id

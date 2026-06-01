@@ -78,15 +78,43 @@ service cloud.firestore {
       allow read, write: if isAdmin(request.auth.uid);
     }
 
-    // AI Insights — jen admin čte
-    match /aiInsights/{document=**} {
+    // AI Insights — jen admin čte, CF píše (server)
+    match /aiInsights/{uid} {
       allow read: if isAdmin(request.auth.uid);
-      allow write: if false;  // Jen Cloud Functions (server)
+      allow write: if false;  // Jen Cloud Functions (Admin SDK)
     }
 
     // AI Configuration — jen admin
     match /aiConfig/{document=**} {
-      allow read, write: if isAdmin(request.auth.uid);
+      allow read: if isAdmin(request.auth.uid);
+      allow write: if isAdmin(request.auth.uid);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // 🔒 SECURITY - Audit Logging (admin only)
+    // ═══════════════════════════════════════════════════════════════════════════════
+
+    // Audit Log — jen CF a admin
+    match /_auditLog/{document=**} {
+      allow read: if isAdmin(request.auth.uid);
+      allow write: if false;  // Jen Cloud Functions
+    }
+
+    // Rate Limits — interní, nikdo nečte
+    match /_rateLimits/{document=**} {
+      allow read, write: if false;  // Jen Cloud Functions
+    }
+
+    // Security Events — jen CF píše, admin čte
+    match /_securityEvents/{document=**} {
+      allow read: if isAdmin(request.auth.uid);
+      allow write: if false;  // Jen Cloud Functions
+    }
+
+    // Admin IP Log — jen CF píše, admin čte
+    match /_adminIPLog/{document=**} {
+      allow read: if isAdmin(request.auth.uid);
+      allow write: if false;  // Jen Cloud Functions
     }
   }
 }

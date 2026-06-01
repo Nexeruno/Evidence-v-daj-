@@ -5,6 +5,7 @@ import {
 } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import toast from 'react-hot-toast';
+import { aiTracker } from './aiTracker';
 
 const getUid = () => auth.currentUser?.uid;
 
@@ -31,7 +32,7 @@ export const useAppStore = create((set) => ({
   setPrijmy:  (items) => set({ prijmy: items, prijmyReady: true }),
   resetStore: ()      => set({ prijmy: [], vydaje: [], vydajeReady: false, prijmyReady: false }),
 
-  // Batch write — add + counter update jsou atomické
+  // Batch write — add + counter update + AI telemetry jsou atomické
   addVydaj: (data) =>
     firestoreWrite(async () => {
       const uid = getUid();
@@ -40,6 +41,16 @@ export const useAppStore = create((set) => ({
       const newRef = doc(collection(db, 'users', uid, 'vydaje'));
       batch.set(newRef, { ...data, createdAt: serverTimestamp() });
       batch.update(doc(db, 'users', uid), { vydajeCount: increment(1) });
+      // AI Telemetry (bez castka, nazev)
+      const transactionRef = doc(collection(db, 'aiTelemetry', uid, 'transactions'));
+      batch.set(transactionRef, {
+        type: 'vydaj',
+        category: data.kategorie,
+        datum: data.datum,
+        dayOfWeek: new Date(data.datum).getDay(),
+        hourOfDay: new Date().getHours(),
+        createdAt: serverTimestamp(),
+      });
       await batch.commit();
     }),
 
@@ -61,6 +72,16 @@ export const useAppStore = create((set) => ({
       const newRef = doc(collection(db, 'users', uid, 'prijmy'));
       batch.set(newRef, { ...data, createdAt: serverTimestamp() });
       batch.update(doc(db, 'users', uid), { prijmyCount: increment(1) });
+      // AI Telemetry (bez castka, nazev)
+      const transactionRef = doc(collection(db, 'aiTelemetry', uid, 'transactions'));
+      batch.set(transactionRef, {
+        type: 'prijem',
+        category: data.kategorie,
+        datum: data.datum,
+        dayOfWeek: new Date(data.datum).getDay(),
+        hourOfDay: new Date().getHours(),
+        createdAt: serverTimestamp(),
+      });
       await batch.commit();
     }),
 

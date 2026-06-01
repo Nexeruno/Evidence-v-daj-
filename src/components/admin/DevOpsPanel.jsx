@@ -14,7 +14,8 @@ export const DevOpsPanel = () => {
   const [metrics, setMetrics] = useState(null);
   const [users, setUsers] = useState([]);
   const [systemAlerts, setSystemAlerts] = useState([]);
-  const [loading, setLoading] = useState({ health: true, metrics: false, users: true, systemAlerts: true });
+  const [securityEvents, setSecurityEvents] = useState([]);
+  const [loading, setLoading] = useState({ health: true, metrics: false, users: true, systemAlerts: true, securityEvents: true });
   const [actionResults, setActionResults] = useState({});
 
   // Načti health (auto 30s)
@@ -37,6 +38,24 @@ export const DevOpsPanel = () => {
     fetchHealth();
     const interval = setInterval(fetchHealth, 30000);
     return () => clearInterval(interval);
+  }, []);
+
+  // Načti security events (jednou)
+  useEffect(() => {
+    const loadSecurityEvents = async () => {
+      try {
+        const snap = await getDocs(
+          query(collection(db, '_securityEvents'), orderBy('timestamp', 'desc'), limit(10))
+        );
+        const events = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        setSecurityEvents(events);
+      } catch (err) {
+        console.error('Security events fetch error:', err);
+      } finally {
+        setLoading((prev) => ({ ...prev, securityEvents: false }));
+      }
+    };
+    loadSecurityEvents();
   }, []);
 
   // Načti uživatele (jednou)
@@ -497,6 +516,59 @@ export const DevOpsPanel = () => {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* SEKCE F: Security Events */}
+      <div className="card border-l-4 border-purple-500">
+        <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
+          🔒 Security Events (Posledních 10)
+        </h3>
+
+        {loading.securityEvents ? (
+          <div className="text-light-textMuted dark:text-dark-textMuted">Načítám...</div>
+        ) : securityEvents.length === 0 ? (
+          <div className="p-4 bg-green-100 dark:bg-green-900/30 rounded-lg">
+            <span className="text-green-700 dark:text-green-300">Žádné security eventy</span>
+          </div>
+        ) : (
+          <div className="space-y-2 max-h-96 overflow-y-auto">
+            {securityEvents.map((event) => (
+              <div
+                key={event.id}
+                className={`p-3 rounded-lg border text-sm ${
+                  event.severity === 'high'
+                    ? 'bg-red-50 dark:bg-red-900/20 border-red-300'
+                    : event.severity === 'medium'
+                    ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-300'
+                    : 'bg-blue-50 dark:bg-blue-900/20 border-blue-300'
+                }`}
+              >
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="font-semibold">{event.eventType}</p>
+                    <p className="text-xs text-light-textMuted dark:text-dark-textMuted mt-1">
+                      {event.details?.uid && `UID: ${event.details.uid.substring(0, 8)}...`}
+                      {event.details?.reason && ` • ${event.details.reason}`}
+                      {event.details?.action && ` • ${event.details.action}`}
+                    </p>
+                  </div>
+                  <span className={`text-xs px-2 py-1 rounded font-medium ${
+                    event.severity === 'high'
+                      ? 'bg-red-200 dark:bg-red-700 text-red-800 dark:text-red-100'
+                      : event.severity === 'medium'
+                      ? 'bg-yellow-200 dark:bg-yellow-700 text-yellow-800 dark:text-yellow-100'
+                      : 'bg-blue-200 dark:bg-blue-700 text-blue-800 dark:text-blue-100'
+                  }`}>
+                    {event.severity}
+                  </span>
+                </div>
+                <p className="text-xs text-light-textMuted dark:text-dark-textMuted mt-2">
+                  {event.timestamp?.toDate?.()?.toLocaleString?.('cs-CZ') || new Date(event.timestamp).toLocaleString('cs-CZ')}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -8,6 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import { db } from '../utils/firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import toast from 'react-hot-toast';
+import { aiTracker } from '../utils/aiTracker';
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
@@ -50,6 +51,7 @@ const Form = ({ typ }) => {
     setSaving(true);
     try {
       await addItem({ ...form, castka: Number(form.castka) });
+      aiTracker.trackFormSubmit(typ);
       toast.success(`${label} přidán ✓`);
       setForm((f) => ({ ...f, nazev: '', castka: '' }));
       nazevRef.current?.focus();
@@ -81,6 +83,7 @@ const Form = ({ typ }) => {
         datum: todayISO(),
         kategorie: favorite.category,
       });
+      aiTracker.trackFormSubmit(typ);
       toast.success(`${favorite.title} přidán ✓`);
     } catch (err) {
       console.error('Chyba při přidání:', err);
@@ -142,6 +145,7 @@ const Form = ({ typ }) => {
           className="input-field"
           value={form.nazev}
           onChange={set('nazev')}
+          onFocus={() => aiTracker.trackFormStart(typ)}
           maxLength={100}
           autoFocus
         />
