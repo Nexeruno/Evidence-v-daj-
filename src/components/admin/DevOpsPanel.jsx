@@ -456,69 +456,7 @@ export const DevOpsPanel = () => {
         )}
       </div>
 
-      {/* SEKCE D: Quick Actions - TEST ENDPOINT */}
-      <div className="card">
-        <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
-          <Zap size={20} /> Quick Actions
-        </h3>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {['debugRecurring', 'testGenerateRecurring'].map((fn) => (
-            <div key={fn} className="space-y-2">
-              <button
-                onClick={() => callCloudFunction(fn)}
-                className="w-full px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600 transition text-sm font-medium"
-              >
-                {fn === 'debugRecurring' && '🔍 Debug Recurring'}
-                {fn === 'testGenerateRecurring' && '🧪 Test Generate'}
-              </button>
-
-              {actionResults[fn] && (
-                <details className="text-xs bg-light-border dark:bg-dark-border rounded p-2">
-                  <summary className="cursor-pointer font-medium mb-1">
-                    {actionResults[fn].loading ? 'Běží...' : 'Výsledek'}
-                  </summary>
-                  <pre className="overflow-x-auto whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
-                    {JSON.stringify(actionResults[fn], null, 2)}
-                  </pre>
-                </details>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* SEKCE E: Projekt Info */}
-      <div className="card">
-        <h3 className="text-lg font-semibold mb-4">📋 Projekt Info</h3>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <div className="text-sm text-light-textMuted dark:text-dark-textMuted mb-1">
-              Firebase Project ID
-            </div>
-            <div className="font-mono text-sm break-all">{firebaseConfig.projectId}</div>
-          </div>
-          <div>
-            <div className="text-sm text-light-textMuted dark:text-dark-textMuted mb-1">Region</div>
-            <div className="font-mono text-sm">europe-west1</div>
-          </div>
-          <div>
-            <div className="text-sm text-light-textMuted dark:text-dark-textMuted mb-1">Verze</div>
-            <div className="font-mono text-sm">1.0.0</div>
-          </div>
-          <div>
-            <div className="text-sm text-light-textMuted dark:text-dark-textMuted mb-1">
-              Refresh
-            </div>
-            <div className="font-mono text-sm text-green-600">
-              {health?.timestamp ? new Date(health.timestamp).toLocaleString('cs-CZ') : '—'}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* SEKCE F: Security Events */}
+      {/* SEKCE E: Security Events */}
       <div className="card border-l-4 border-purple-500">
         <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
           🔒 Security Events (Posledních 10)

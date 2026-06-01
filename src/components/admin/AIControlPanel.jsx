@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { firebaseConfig } from '../../config/firebase-config';
 import { auth } from '../../utils/firebase';
 import toast from 'react-hot-toast';
@@ -39,12 +39,9 @@ export const AIControlPanel = () => {
     }
   };
 
-  const updateConfig = async () => {
+  const updateConfig = async (value = isEnabled) => {
     try {
-      if (typeof isEnabled !== 'boolean') {
-        toast.error('Neplatná hodnota pro tracking');
-        return;
-      }
+      if (typeof value !== 'boolean') return;
 
       const idToken = await auth.currentUser?.getIdToken();
       if (!idToken) throw new Error('ID Token not found');
@@ -56,20 +53,23 @@ export const AIControlPanel = () => {
           Authorization: `Bearer ${idToken}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ isEnabled }),
+        body: JSON.stringify({ isEnabled: value }),
       });
 
       if (!response.ok) {
         const data = await response.json();
         throw new Error(data.error || 'Failed to update config');
       }
-
-      toast.success('Konfigurace aktualizována');
     } catch (err) {
       console.error('Error updating config:', err);
-      toast.error(err.message || 'Chyba při aktualizaci konfigurace');
     }
   };
+
+  // Auto-update when isEnabled changes
+  useEffect(() => {
+    const timer = setTimeout(() => updateConfig(isEnabled), 300);
+    return () => clearTimeout(timer);
+  }, [isEnabled]);
 
   return (
     <div className="space-y-6">
@@ -98,13 +98,6 @@ export const AIControlPanel = () => {
               {lastRun || 'Zatím neběžel'}
             </p>
           </div>
-
-          <button
-            onClick={updateConfig}
-            className="btn-primary w-full"
-          >
-            Uložit konfiguraci
-          </button>
         </div>
       </div>
 
