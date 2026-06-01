@@ -1216,6 +1216,12 @@ exports.aiTriggerAnalysis = functions.region(REGION).https.onRequest(async (req,
       console.log('🤖 Admin manuálně spustil AI analýzu');
       const usersSnap = await db.collection('users').get();
       let analyzedCount = 0;
+      const summary = {
+        totalVydaje: 0,
+        totalPrijmy: 0,
+        categoryBreakdown: {},
+        usersAnalyzed: [],
+      };
 
       for (const userDoc of usersSnap.docs) {
         const uid = userDoc.id;
@@ -1280,8 +1286,12 @@ exports.aiTriggerAnalysis = functions.region(REGION).https.onRequest(async (req,
           const dayOfWeekCounts = new Array(7).fill(0);
           const hourOfDayCounts = new Array(24).fill(0);
           const categoryCount = {};
+          let vydajeCount = 0;
+          let prijmyCount = 0;
 
           transactions.forEach(t => {
+            if (t.type === 'vydaj') vydajeCount++;
+            if (t.type === 'prijem') prijmyCount++;
             if (t.category) {
               categoryCount[t.category] = (categoryCount[t.category] || 0) + 1;
             }
@@ -1297,6 +1307,18 @@ exports.aiTriggerAnalysis = functions.region(REGION).https.onRequest(async (req,
           stats.financial.preferredDayOfWeek = dayOfWeekCounts.indexOf(Math.max(...dayOfWeekCounts));
           stats.financial.preferredHourOfDay = hourOfDayCounts.indexOf(Math.max(...hourOfDayCounts));
 
+          // Aggregate for summary
+          summary.totalVydaje += vydajeCount;
+          summary.totalPrijmy += prijmyCount;
+          Object.entries(categoryCount).forEach(([cat, count]) => {
+            summary.categoryBreakdown[cat] = (summary.categoryBreakdown[cat] || 0) + count;
+          });
+          summary.usersAnalyzed.push({
+            username: userData.username || 'Unknown',
+            vydaje: vydajeCount,
+            prijmy: prijmyCount,
+          });
+
           await db.collection('aiInsights').doc(uid).set(stats, { merge: true });
           analyzedCount++;
         } catch (err) {
@@ -1304,8 +1326,17 @@ exports.aiTriggerAnalysis = functions.region(REGION).https.onRequest(async (req,
         }
       }
 
-      await logAdminAction(decodedToken.uid, 'aiTriggerAnalysis_COMPLETE', { analyzed: analyzedCount });
-      res.status(200).json({ ok: true, analyzed: analyzedCount });
+      await logAdminAction(decodedToken.uid, 'aiTriggerAnalysis_COMPLETE', { analyzed: analyzedCount, summary });
+      res.status(200).json({
+        ok: true,
+        analyzed: analyzedCount,
+        summary: {
+          totalVydaje: summary.totalVydaje,
+          totalPrijmy: summary.totalPrijmy,
+          categoryBreakdown: summary.categoryBreakdown,
+          usersAnalyzed: summary.usersAnalyzed,
+        }
+      });
     } catch (err) {
       console.error('aiTriggerAnalysis error:', err);
       await logAdminAction(decodedToken?.uid, 'aiTriggerAnalysis_ERROR', { error: err.message });

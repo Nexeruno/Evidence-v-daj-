@@ -7,6 +7,7 @@ export const AIControlPanel = () => {
   const [isEnabled, setIsEnabled] = useState(true);
   const [triggering, setTriggering] = useState(false);
   const [lastRun, setLastRun] = useState(null);
+  const [lastSummary, setLastSummary] = useState(null);
 
   const triggerAnalysis = async () => {
     setTriggering(true);
@@ -29,6 +30,7 @@ export const AIControlPanel = () => {
       const data = await response.json();
       toast.success(`✅ Analýza spuštěna. Analyzováno ${data.analyzed} uživatelů.`);
       setLastRun(new Date().toLocaleString('cs-CZ'));
+      setLastSummary(data.summary);
     } catch (err) {
       console.error('Error triggering analysis:', err);
       toast.error('Chyba při spuštění analýzy');
@@ -122,6 +124,64 @@ export const AIControlPanel = () => {
           </button>
         </div>
       </div>
+
+      {/* Analysis Results Section */}
+      {lastSummary && (
+        <div className="card">
+          <h3 className="text-lg font-semibold mb-4">📊 Výsledky Poslední Analýzy</h3>
+          <div className="space-y-4">
+            {/* Financial Summary */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="p-3 bg-light-bg dark:bg-dark-card rounded-lg">
+                <p className="text-sm text-light-textMuted dark:text-dark-textMuted">Celkem Výdajů</p>
+                <p className="text-2xl font-bold text-red-600">{lastSummary.totalVydaje}</p>
+              </div>
+              <div className="p-3 bg-light-bg dark:bg-dark-card rounded-lg">
+                <p className="text-sm text-light-textMuted dark:text-dark-textMuted">Celkem Příjmů</p>
+                <p className="text-2xl font-bold text-green-600">{lastSummary.totalPrijmy}</p>
+              </div>
+            </div>
+
+            {/* Category Breakdown */}
+            {Object.keys(lastSummary.categoryBreakdown || {}).length > 0 && (
+              <div className="p-3 bg-light-bg dark:bg-dark-card rounded-lg">
+                <p className="font-medium mb-2">Kategorie</p>
+                <div className="space-y-1 text-sm">
+                  {Object.entries(lastSummary.categoryBreakdown).map(([cat, count]) => (
+                    <div key={cat} className="flex justify-between">
+                      <span className="capitalize">{cat}:</span>
+                      <span className="font-semibold">{count}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Users Analyzed */}
+            {lastSummary.usersAnalyzed && lastSummary.usersAnalyzed.length > 0 && (
+              <div className="p-3 bg-light-bg dark:bg-dark-card rounded-lg">
+                <p className="font-medium mb-2">Uživatelé</p>
+                <div className="space-y-2 text-sm">
+                  {lastSummary.usersAnalyzed.map((user, idx) => (
+                    <div key={idx} className="flex justify-between items-center border-b border-light-border dark:border-dark-border pb-2 last:border-0">
+                      <span>{user.username}</span>
+                      <span className="text-xs">
+                        <span className="text-red-600">📉 {user.vydaje}</span>
+                        <span className="mx-1">•</span>
+                        <span className="text-green-600">📈 {user.prijmy}</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <p className="text-xs text-light-textMuted dark:text-dark-textMuted">
+              Poslední běh: {lastRun}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Info Section */}
       <div className="card border-l-4 border-blue-500 bg-blue-50 dark:bg-blue-950">
