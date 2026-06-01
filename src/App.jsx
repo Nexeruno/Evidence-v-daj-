@@ -34,6 +34,14 @@ function AppContent() {
   // Napojení Firestore real-time listenerů
   useFirestoreSync();
 
+  // Initialize AI tracker on app load (works even without login)
+  useEffect(() => {
+    aiTracker.init(session?.uid);
+    return () => {
+      aiTracker.destroy();
+    };
+  }, [session?.uid]);
+
   // Track beforeunload to flush AI data
   useEffect(() => {
     const handleBeforeUnload = () => {
