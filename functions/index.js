@@ -950,18 +950,30 @@ exports.aiAnalyzeUsers = functions
             },
             behavioral: {
               avgClicksPerSession: 0,
+              totalClicks: 0,
+              avgCharCountPerSession: 0,
+              totalCharCount: 0,
             },
             lastAnalyzed: new Date(),
           };
 
-          // Tab breakdown
+          // Tab breakdown + clicks & character count
+          let totalClicks = 0;
+          let totalCharCount = 0;
           sessions.forEach(session => {
             if (session.tabDurations) {
               stats.tabs.dashboard += session.tabDurations.dashboard || 0;
               stats.tabs.vydaje += session.tabDurations.vydaje || 0;
               stats.tabs.prijmy += session.tabDurations.prijmy || 0;
             }
+            totalClicks += session.clickCount || 0;
+            totalCharCount += session.charCount || 0;
           });
+
+          stats.behavioral.totalClicks = totalClicks;
+          stats.behavioral.avgClicksPerSession = sessions.length > 0 ? Math.round(totalClicks / sessions.length) : 0;
+          stats.behavioral.totalCharCount = totalCharCount;
+          stats.behavioral.avgCharCountPerSession = sessions.length > 0 ? Math.round(totalCharCount / sessions.length) : 0;
 
           // Compute percentages
           const totalTabTime = stats.tabs.dashboard + stats.tabs.vydaje + stats.tabs.prijmy;
