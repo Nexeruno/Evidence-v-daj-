@@ -1191,6 +1191,7 @@ exports.aiUpdateConfig = functions.region(REGION).https.onRequest(async (req, re
 
 exports.aiTriggerAnalysis = functions.region(REGION).https.onRequest(async (req, res) => {
   cors(req, res, async () => {
+    let decodedToken = null;
     try {
       const token = req.headers.authorization?.split('Bearer ')[1];
 
@@ -1198,7 +1199,7 @@ exports.aiTriggerAnalysis = functions.region(REGION).https.onRequest(async (req,
         return res.status(400).json({ error: 'Token je povinný' });
       }
 
-      const decodedToken = await verifyAuth(token);
+      decodedToken = await verifyAuth(token);
       if (!(await verifyAdmin(decodedToken))) {
         return res.status(403).json({ error: '🔐 Jen admin!' });
       }
