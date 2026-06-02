@@ -39,11 +39,13 @@ export const useAppStore = create((set) => ({
       const newRef = doc(collection(db, 'users', uid, 'vydaje'));
       batch.set(newRef, { ...data, createdAt: serverTimestamp() });
       batch.update(doc(db, 'users', uid), { vydajeCount: increment(1) });
-      // AI Telemetry (bez castka, nazev)
+      // AI Telemetry - pro učení
       const transactionRef = doc(collection(db, 'aiTelemetry', uid, 'transactions'));
       batch.set(transactionRef, {
         type: 'vydaj',
-        category: data.kategorie,
+        castka: Number(data.castka || 0),
+        nazev: (data.nazev || '').substring(0, 100),
+        kategorie: data.kategorie,
         datum: data.datum,
         dayOfWeek: new Date(data.datum).getDay(),
         hourOfDay: new Date().getHours(),
@@ -70,11 +72,13 @@ export const useAppStore = create((set) => ({
       const newRef = doc(collection(db, 'users', uid, 'prijmy'));
       batch.set(newRef, { ...data, createdAt: serverTimestamp() });
       batch.update(doc(db, 'users', uid), { prijmyCount: increment(1) });
-      // AI Telemetry (bez castka, nazev)
+      // AI Telemetry - pro učení
       const transactionRef = doc(collection(db, 'aiTelemetry', uid, 'transactions'));
       batch.set(transactionRef, {
         type: 'prijem',
-        category: data.kategorie,
+        castka: Number(data.castka || 0),
+        nazev: (data.nazev || '').substring(0, 100),
+        kategorie: data.kategorie,
         datum: data.datum,
         dayOfWeek: new Date(data.datum).getDay(),
         hourOfDay: new Date().getHours(),
