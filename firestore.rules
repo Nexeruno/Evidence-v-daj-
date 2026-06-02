@@ -44,9 +44,9 @@ service cloud.firestore {
         allow read, write: if isOwner(uid);
       }
 
-      // ML Predictions — user čte svoje predikce, CF píše, user skrývá
+      // ML Predictions — user čte svoje predikce, admin vidí všechny, CF píše, user skrývá
       match /mlPredictions/{document=**} {
-        allow read: if isOwner(uid);
+        allow read: if isOwner(uid) || isAdmin(request.auth.uid);
         allow write: if false;  // Jen Cloud Functions (Admin SDK)
         allow update: if isOwner(uid) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['hidden']);
       }

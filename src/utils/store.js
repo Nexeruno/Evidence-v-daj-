@@ -127,3 +127,39 @@ export const useAppStore = create((set) => ({
   setFiltrVydaj: (filtry) =>
     set((state) => ({ filtrVydaj: { ...state.filtrVydaj, ...filtry } })),
 }));
+
+// Activity tracker - update lastActivity on user interaction
+let activityTimeout;
+
+export const initActivityTracker = () => {
+  const updateActivity = async () => {
+    try {
+      const uid = auth.currentUser?.uid;
+      if (!uid) return;
+      await import('firebase/firestore').then(({ updateDoc }) => {
+        updateDoc(doc(db, 'users', uid), { lastActivity: serverTimestamp() });
+      });
+    } catch (err) {
+      // Fail silently - activity tracking is not critical
+    }
+  };
+
+  const onActivity = () => {
+    clearTimeout(activityTimeout);
+    activityTimeout = setTimeout(updateActivity, 5000); // Debounce: update every 5s max
+  };
+
+  // Track: clicks, key presses, scroll, tab visibility
+  document.addEventListener('click', onActivity, { passive: true });
+  document.addEventListener('keydown', onActivity, { passive: true });
+  document.addEventListener('scroll', onActivity, { passive: true });
+  window.addEventListener('visibilitychange', onActivity, { passive: true });
+
+  // Cleanup on unload
+  window.addEventListener('beforeunload', () => {
+    document.removeEventListener('click', onActivity);
+    document.removeEventListener('keydown', onActivity);
+    document.removeEventListener('scroll', onActivity);
+    window.removeEventListener('visibilitychange', onActivity);
+  });
+};

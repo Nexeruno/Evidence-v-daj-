@@ -17,6 +17,7 @@ import { SeznamPrijem } from './components/SeznamPrijem';
 import { Dashboard } from './components/Dashboard';
 import { useFirestoreSync } from './hooks/useFirestoreSync';
 import { aiTracker } from './utils/aiTracker';
+import { initActivityTracker } from './utils/store';
 
 const TABS = [
   { id: 'dashboard', label: '📊 Přehled' },
@@ -40,6 +41,13 @@ function AppContent() {
     return () => {
       aiTracker.destroy();
     };
+  }, [session?.uid]);
+
+  // Initialize activity tracker on mount
+  useEffect(() => {
+    if (session?.uid) {
+      initActivityTracker();
+    }
   }, [session?.uid]);
 
   // Track beforeunload to flush AI data
