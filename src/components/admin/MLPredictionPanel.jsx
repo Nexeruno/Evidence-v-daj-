@@ -9,11 +9,6 @@ export const MLPredictionPanel = () => {
   const [mlRuns, setMlRuns] = useState([]);
   const [isAdmin, setIsAdmin] = useState(false);
 
-  useEffect(() => {
-    loadPredictions();
-    checkAdmin();
-  }, []);
-
   const checkAdmin = async () => {
     try {
       const uid = auth.currentUser?.uid;
@@ -78,6 +73,12 @@ export const MLPredictionPanel = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadPredictions();
+    checkAdmin();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (loading) {
     return (
