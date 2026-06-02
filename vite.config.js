@@ -18,4 +18,10 @@ export default defineConfig({
       'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
     },
   },
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: ['./src/tests/setup.js'],
+    exclude: ['node_modules', 'docs', 'functions'],
+  },
 })
