@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { auth, db } from '../../utils/firebase';
-import { collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
+import { collection, query, orderBy, limit, getDocs, doc, updateDoc } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 
 export const MLPredictionPanel = () => {
@@ -8,6 +8,7 @@ export const MLPredictionPanel = () => {
   const [loading, setLoading] = useState(true);
   const [mlRuns, setMlRuns] = useState([]);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [showHidden, setShowHidden] = useState(false);
 
   const checkAdmin = async () => {
     try {
@@ -24,6 +25,26 @@ export const MLPredictionPanel = () => {
     }
   };
 
+  const toggleHidden = async (predictionId, uid, currentHidden) => {
+    try {
+      const predRef = doc(db, `users/${uid}/mlPredictions/${predictionId}`);
+      await updateDoc(predRef, { hidden: !currentHidden });
+
+      setPredictions(prev =>
+        prev.map(p =>
+          p.id === predictionId && p.uid === uid
+            ? { ...p, hidden: !currentHidden }
+            : p
+        )
+      );
+
+      toast.success(currentHidden ? '✅ Predikce obnovena' : '👁️ Predikce skryta');
+    } catch (err) {
+      console.error('Error toggling hidden:', err);
+      toast.error('Chyba při skrývání');
+    }
+  };
+
   const loadPredictions = async () => {
     try {
       setLoading(true);
@@ -33,22 +54,49 @@ export const MLPredictionPanel = () => {
         return;
       }
 
-      // Load user's predictions
-      const preds = await getDocs(
-        query(
-          collection(db, `users/${uid}/mlPredictions`),
-          orderBy('createdAt', 'desc'),
-          limit(12)
-        )
-      );
+      let allPredictions = [];
 
-      const predictionsData = preds.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: doc.data().createdAt?.toDate?.(),
-      }));
+      if (isAdmin) {
+        // Admin vidí všechny predikce všech uživatelů
+        const usersSnap = await getDocs(collection(db, 'users'));
+        for (const userDoc of usersSnap.docs) {
+          const preds = await getDocs(
+            query(
+              collection(db, `users/${userDoc.id}/mlPredictions`),
+              orderBy('createdAt', 'desc'),
+              limit(20)
+            )
+          );
+          allPredictions.push(
+            ...preds.docs.map(doc => ({
+              id: doc.id,
+              uid: userDoc.id,
+              username: userDoc.data().username || userDoc.id,
+              ...doc.data(),
+              createdAt: doc.data().createdAt?.toDate?.(),
+            }))
+          );
+        }
+        allPredictions.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      } else {
+        // Běžný uživatel vidí jen svoje
+        const preds = await getDocs(
+          query(
+            collection(db, `users/${uid}/mlPredictions`),
+            orderBy('createdAt', 'desc'),
+            limit(12)
+          )
+        );
+        allPredictions = preds.docs.map(doc => ({
+          id: doc.id,
+          uid,
+          username: auth.currentUser?.displayName || 'Já',
+          ...doc.data(),
+          createdAt: doc.data().createdAt?.toDate?.(),
+        }));
+      }
 
-      setPredictions(predictionsData);
+      setPredictions(allPredictions);
 
       // Load ML runs (if admin)
       if (isAdmin) {
@@ -75,10 +123,13 @@ export const MLPredictionPanel = () => {
   };
 
   useEffect(() => {
-    loadPredictions();
     checkAdmin();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    loadPredictions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin]);
 
   if (loading) {
     return (
@@ -96,7 +147,22 @@ export const MLPredictionPanel = () => {
     <div className="space-y-6">
       {/* User Predictions */}
       <div className="card">
-        <h3 className="text-lg font-semibold mb-4">🤖 Předpovědi výdajů</h3>
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-semibold">🤖 Předpovědi výdajů</h3>
+          {isAdmin && (
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showHidden}
+                onChange={(e) => setShowHidden(e.target.checked)}
+                className="w-4 h-4"
+              />
+              <span className="text-light-textMuted dark:text-dark-textMuted">
+                Zobrazit skryté
+              </span>
+            </label>
+          )}
+        </div>
 
         {predictions.length === 0 ? (
           <div className="p-4 bg-light-bg dark:bg-dark-card rounded-lg text-center">
@@ -106,30 +172,50 @@ export const MLPredictionPanel = () => {
           </div>
         ) : (
           <div className="space-y-4">
-            {predictions.map(pred => (
+            {predictions
+              .filter(pred => showHidden || !pred.hidden)
+              .map(pred => (
               <div
-                key={pred.id}
-                className="p-4 bg-light-bg dark:bg-dark-card rounded-lg border-l-4 border-purple-500"
+                key={`${pred.uid}-${pred.id}`}
+                className={`p-4 rounded-lg border-l-4 border-purple-500 ${
+                  pred.hidden
+                    ? 'bg-gray-100 dark:bg-gray-800 opacity-60'
+                    : 'bg-light-bg dark:bg-dark-card'
+                }`}
               >
                 <div className="flex justify-between items-start mb-3">
                   <div>
                     <p className="font-semibold text-sm">
+                      {isAdmin && pred.username && (
+                        <span className="text-xs text-light-textMuted dark:text-dark-textMuted mr-2">
+                          ({pred.username})
+                        </span>
+                      )}
                       {new Date(pred.month + '-01').toLocaleDateString('cs-CZ', {
                         month: 'long',
                         year: 'numeric',
                       })}
+                      {pred.hidden && <span className="ml-2 text-xs bg-gray-500 text-white px-2 py-1 rounded">SKRYTO</span>}
                     </p>
                     <p className="text-xs text-light-textMuted dark:text-dark-textMuted">
                       Vytvořeno: {pred.createdAt?.toLocaleString('cs-CZ')}
                     </p>
                   </div>
-                  <div className={`px-3 py-2 rounded text-xs ${
-                    pred.confidence === 'high'
-                      ? 'bg-green-100 dark:bg-green-900'
-                      : pred.confidence === 'medium'
-                      ? 'bg-yellow-100 dark:bg-yellow-900'
-                      : 'bg-red-100 dark:bg-red-900'
-                  }`}>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => toggleHidden(pred.id, pred.uid, pred.hidden)}
+                      className="px-2 py-1 hover:opacity-80 transition-opacity text-lg"
+                      title={pred.hidden ? 'Obnovit' : 'Skrýt'}
+                    >
+                      {pred.hidden ? '👁️' : '🗑️'}
+                    </button>
+                    <div className={`px-3 py-2 rounded text-xs ${
+                      pred.confidence === 'high'
+                        ? 'bg-green-100 dark:bg-green-900'
+                        : pred.confidence === 'medium'
+                        ? 'bg-yellow-100 dark:bg-yellow-900'
+                        : 'bg-red-100 dark:bg-red-900'
+                    }`}>
                     <div className={`font-semibold ${
                       pred.confidence === 'high'
                         ? 'text-green-800 dark:text-green-200'
@@ -152,6 +238,7 @@ export const MLPredictionPanel = () => {
                         {pred.confidenceReason}
                       </div>
                     )}
+                    </div>
                   </div>
                 </div>
 
