@@ -43,6 +43,12 @@ service cloud.firestore {
       match /pendingTransactions/{document=**} {
         allow read, write: if isOwner(uid);
       }
+
+      // ML Predictions — user čte svoje predikce, CF píše
+      match /mlPredictions/{document=**} {
+        allow read: if isOwner(uid);
+        allow write: if false;  // Jen Cloud Functions (Admin SDK)
+      }
     }
 
     // System Alerts (admin monitoring)
@@ -118,14 +124,8 @@ service cloud.firestore {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════════
-    // 🤖 ML PIPELINE - Expense predictions and run logs
+    // 🤖 ML PIPELINE - Run logs (predictions jsou v users/{uid}/mlPredictions)
     // ═══════════════════════════════════════════════════════════════════════════════
-
-    // ML Predictions — user čte svoje predikce, CF píše
-    match /users/{uid}/mlPredictions/{document=**} {
-      allow read: if isOwner(uid);
-      allow write: if false;  // Jen Cloud Functions (Admin SDK)
-    }
 
     // ML Run Logs — jen admin čte, CF píše
     match /mlRuns/{document=**} {
