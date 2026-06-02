@@ -1,5 +1,6 @@
 require('dotenv').config();
 const functions = require('firebase-functions/v1');
+const logger = require('firebase-functions/logger');
 const admin = require('firebase-admin');
 const fetch = require('node-fetch');
 const cors = require('cors')({
@@ -291,10 +292,20 @@ async function generateTransactionsForUser(uid, today, forceTest = false) {
 
 exports.posliResetHesla = functions.region(REGION).https.onRequest((req, res) => {
   cors(req, res, async () => {
+    const startTime = Date.now();
+    const functionName = 'posliResetHesla';
+
     try {
       const data = req.method === 'POST' ? req.body : req.query;
       const email = (data.email || '').trim().toLowerCase();
       const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
+
+      logger.info({
+        event: 'posliResetHesla_requested',
+        status: 'initiated',
+        functionName,
+        email,
+      });
 
       // Rate limit: max 3× za 10 minut per IP
       const allowed = await checkRateLimit(`reset:${ip}`, 3, 10);
@@ -303,15 +314,42 @@ exports.posliResetHesla = functions.region(REGION).https.onRequest((req, res) =>
       if (!email) return res.status(400).json({ error: 'Email je povinný' });
       if (!validateEmail(email)) return res.status(400).json({ error: 'Neplatný formát emailu' });
 
-      console.log('🔄 Reset hesla pro:', email);
-
       const link = await admin.auth().generatePasswordResetLink(email);
       await sendEmail(email, 'Reset hesla — Evidence Výdajů', EMAIL_HTML(link));
 
+      const durationMs = Date.now() - startTime;
+      logger.info({
+        event: 'posliResetHesla_success',
+        status: 'completed',
+        functionName,
+        email,
+        durationMs,
+      });
+
       res.status(200).json({ ok: true });
     } catch (err) {
-      if (err?.code === 'auth/user-not-found') return res.status(200).json({ ok: true });
-      console.error('posliResetHesla error:', err);
+      const durationMs = Date.now() - startTime;
+
+      if (err?.code === 'auth/user-not-found') {
+        logger.info({
+          event: 'posliResetHesla_success',
+          status: 'completed',
+          functionName,
+          durationMs,
+          note: 'user not found (treated as success)',
+        });
+        return res.status(200).json({ ok: true });
+      }
+
+      logger.error({
+        event: 'posliResetHesla_failed',
+        status: 'failed',
+        functionName,
+        errorMessage: err.message || 'Interní chyba',
+        errorCode: err.code || 'UNKNOWN',
+        durationMs,
+      });
+
       res.status(500).json({ error: err.message || 'Interní chyba' });
     }
   });
@@ -319,14 +357,25 @@ exports.posliResetHesla = functions.region(REGION).https.onRequest((req, res) =>
 
 exports.smazUzivatele = functions.region(REGION).https.onRequest((req, res) => {
   cors(req, res, async () => {
+    const startTime = Date.now();
+    const functionName = 'smazUzivatele';
+
     try {
       const { uid, idToken } = req.body;
       if (!uid || !idToken) return res.status(400).json({ error: 'uid a idToken jsou povinné' });
 
       const decodedToken = await verifyAuth(idToken);
+      const adminUid = decodedToken?.uid;
+
       if (!(await verifyAdmin(decodedToken))) return res.status(403).json({ error: 'Nemáš oprávnění' });
 
-      console.log('🗑️ Smazávám uživatele:', uid);
+      logger.info({
+        event: 'smazUzivatele_requested',
+        status: 'initiated',
+        functionName,
+        uid,
+        adminUid,
+      });
 
       const batch = db.batch();
       const vydaje = await db.collection(`users/${uid}/vydaje`).get();
@@ -345,10 +394,32 @@ exports.smazUzivatele = functions.region(REGION).https.onRequest((req, res) => {
       await batch.commit();
       await admin.auth().deleteUser(uid);
 
-      console.log('✓ Uživatel smazán:', uid);
+      const durationMs = Date.now() - startTime;
+      logger.info({
+        event: 'smazUzivatele_success',
+        status: 'completed',
+        functionName,
+        uid,
+        adminUid,
+        durationMs,
+      });
+
       res.status(200).json({ ok: true });
     } catch (err) {
-      console.error('smazUzivatele error:', err);
+      const durationMs = Date.now() - startTime;
+      const adminUid = req.body?.idToken ? (await verifyAuth(req.body.idToken))?.uid : 'unknown';
+
+      logger.error({
+        event: 'smazUzivatele_failed',
+        status: 'failed',
+        functionName,
+        uid: req.body?.uid,
+        adminUid,
+        errorMessage: err.message,
+        errorCode: err.code || 'UNKNOWN',
+        durationMs,
+      });
+
       res.status(500).json({ error: err.message });
     }
   });
@@ -356,6 +427,9 @@ exports.smazUzivatele = functions.region(REGION).https.onRequest((req, res) => {
 
 exports.zablokujUzivatele = functions.region(REGION).https.onRequest((req, res) => {
   cors(req, res, async () => {
+    const startTime = Date.now();
+    const functionName = 'zablokujUzivatele';
+
     try {
       const { uid, blocked, idToken } = req.body;
       if (!uid || blocked === undefined || !idToken) {
@@ -363,15 +437,50 @@ exports.zablokujUzivatele = functions.region(REGION).https.onRequest((req, res) 
       }
 
       const decodedToken = await verifyAuth(idToken);
+      const adminUid = decodedToken?.uid;
+
       if (!(await verifyAdmin(decodedToken))) return res.status(403).json({ error: 'Nemáš oprávnění' });
 
-      console.log('🔒 Blokuji uživatele:', uid, blocked);
+      logger.info({
+        event: 'zablokujUzivatele_requested',
+        status: 'initiated',
+        functionName,
+        uid,
+        adminUid,
+        blocked,
+      });
+
       await admin.auth().updateUser(uid, { disabled: blocked });
       await db.doc(`users/${uid}`).update({ disabled: blocked });
 
+      const durationMs = Date.now() - startTime;
+      logger.info({
+        event: 'zablokujUzivatele_success',
+        status: 'completed',
+        functionName,
+        uid,
+        adminUid,
+        blocked,
+        durationMs,
+      });
+
       res.status(200).json({ ok: true });
     } catch (err) {
-      console.error('zablokujUzivatele error:', err);
+      const durationMs = Date.now() - startTime;
+      const adminUid = req.body?.idToken ? (await verifyAuth(req.body.idToken))?.uid : 'unknown';
+
+      logger.error({
+        event: 'zablokujUzivatele_failed',
+        status: 'failed',
+        functionName,
+        uid: req.body?.uid,
+        adminUid,
+        blocked: req.body?.blocked,
+        errorMessage: err.message,
+        errorCode: err.code || 'UNKNOWN',
+        durationMs,
+      });
+
       res.status(500).json({ error: err.message });
     }
   });
