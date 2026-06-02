@@ -1,10 +1,10 @@
-name: 🔄 Rollback to Last Working Version
+name: 🔄 Rollback to Previous Working Commit
 
 on:
   workflow_dispatch:
     inputs:
-      backup_number:
-        description: 'Backup number to restore (leave empty for latest)'
+      commit_hash:
+        description: 'Commit hash to rollback to (leave empty for previous successful)'
         required: false
         default: ''
 
@@ -13,53 +13,81 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pages: write
+      id-token: write
 
     steps:
-      - name: 📥 Checkout code
+      - name: 📥 Checkout code from main
         uses: actions/checkout@v4
         with:
-          ref: gh-pages-backup
+          fetch-depth: 0
 
-      - name: 🔍 Find latest backup
-        id: backup
+      - name: 🔍 Determine rollback commit
+        id: commit
         run: |
-          if [ -z "${{ github.event.inputs.backup_number }}" ]; then
-            # Get latest backup directory
-            LATEST=$(ls -1d backup-* 2>/dev/null | sort -V | tail -1)
-            if [ -z "$LATEST" ]; then
-              echo "❌ No backup found"
-              exit 1
-            fi
+          if [ -z "${{ github.event.inputs.commit_hash }}" ]; then
+            # Get previous commit (one before HEAD)
+            COMMIT=$(git rev-parse HEAD~1)
+            echo "📍 Using previous commit (before failed deploy)"
           else
-            LATEST="backup-${{ github.event.inputs.backup_number }}"
-            if [ ! -d "$LATEST" ]; then
-              echo "❌ Backup $LATEST not found"
-              exit 1
-            fi
+            COMMIT="${{ github.event.inputs.commit_hash }}"
+            echo "📍 Using provided commit"
           fi
 
-          echo "backup=$LATEST" >> $GITHUB_OUTPUT
-          echo "✅ Found backup: $LATEST"
+          echo "commit=$COMMIT" >> $GITHUB_OUTPUT
+          echo "✅ Rollback commit: $COMMIT"
+          git log -1 --oneline $COMMIT
 
-      - name: 📤 Deploy backup to gh-pages
-        uses: peaceiris/actions-gh-pages@v3
+      - name: 📦 Reset to rollback commit
+        run: |
+          git reset --hard ${{ steps.commit.outputs.commit }}
+          echo "✅ Reset to commit ${{ steps.commit.outputs.commit }}"
+          git log -1 --pretty=format:"%h - %s (%ai)"
+
+      - name: 🔧 Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./${{ steps.backup.outputs.backup }}
-          branch: gh-pages
-          force_orphan: false
-          user_name: 'github-actions[bot]'
-          user_email: 'github-actions[bot]@users.noreply.github.com'
-          commit_message: 'rollback: Restored from ${{ steps.backup.outputs.backup }}'
+          node-version: '20'
+          cache: 'npm'
+
+      - name: 📦 Install dependencies
+        run: npm ci
+
+      - name: 🔨 Rebuild from rollback commit
+        run: npm run build
+        env:
+          VITE_FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+          VITE_ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+
+      - name: 📤 Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: 'docs'
+
+      - name: 🚀 Deploy rollback to GitHub Pages
+        uses: actions/deploy-pages@v4
+
+      - name: 📝 Commit rollback to main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/
+          git commit -m "rollback: Restored to ${{ steps.commit.outputs.commit }}" || echo "ℹ️ No changes to commit"
+          git push origin main || echo "ℹ️ Already up to date"
 
       - name: ✅ Rollback complete
         run: |
           echo "✅ Rollback successful!"
-          echo "🌐 Site is live at: https://nexeruno.github.io/Evidence-v-daj-/"
-          echo "📦 Restored version: ${{ steps.backup.outputs.backup }}"
+          echo "🌐 Site deployed: https://nexeruno.github.io/Evidence-v-daj-/"
+          echo "📦 Restored commit: ${{ steps.commit.outputs.commit }}"
           echo ""
           echo "⚠️ Next steps:"
-          echo "1. Check what went wrong in the main branch"
-          echo "2. Fix the issue"
-          echo "3. Push to main"
+          echo "1. Investigate what caused the failure in main branch"
+          echo "2. Fix the issue locally"
+          echo "3. Push fix to main"
           echo "4. CI/CD will automatically deploy the fixed version"
