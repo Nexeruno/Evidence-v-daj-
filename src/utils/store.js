@@ -128,15 +128,21 @@ export const useAppStore = create((set) => ({
     set((state) => ({ filtrVydaj: { ...state.filtrVydaj, ...filtry } })),
 }));
 
-// Activity tracker - comprehensive user activity tracking
+// Activity tracker - comprehensive user activity tracking with idle detection
 let activityTimeout;
 let tabVisibleTimeout;
+let idleCheckInterval;
 let lastSessionStart;
 let lastTabVisibility = document.hidden;
+let lastActivityTime = Date.now(); // Track actual user interaction time
 
 export const initActivityTracker = () => {
   const uid = auth.currentUser?.uid;
   if (!uid) return;
+
+  // Idle thresholds
+  const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes = device likely locked/user gone
+  const ACTIVITY_UPDATE_INTERVAL = 5000; // Update every 5s
 
   // Update activity timestamp in Firestore
   const updateActivity = async () => {
@@ -151,13 +157,62 @@ export const initActivityTracker = () => {
     }
   };
 
-  // Record user interaction (click, keypress, scroll)
-  const onUserInteraction = () => {
-    clearTimeout(activityTimeout);
-    activityTimeout = setTimeout(updateActivity, 5000);
+  // Check if user is idle (no activity for X minutes)
+  const checkIdleStatus = async () => {
+    try {
+      const currentUid = auth.currentUser?.uid;
+      if (!currentUid) return;
+
+      const timeSinceLastActivity = Date.now() - lastActivityTime;
+      const isTabHidden = document.hidden;
+
+      if (timeSinceLastActivity > IDLE_TIMEOUT_MS) {
+        // User hasn't interacted for 15+ minutes
+        // Device likely locked or user went away
+        const { updateDoc, serverTimestamp } = await import('firebase/firestore');
+        await updateDoc(doc(db, 'users', currentUid), {
+          deviceStatus: 'idle', // Device locked or screen off
+          lastTabHidden: serverTimestamp(),
+          isOnline: false,
+        });
+      } else if (!isTabHidden && timeSinceLastActivity < IDLE_TIMEOUT_MS) {
+        // Tab is visible and recent activity exists → mark as online
+        const { updateDoc, serverTimestamp } = await import('firebase/firestore');
+        await updateDoc(doc(db, 'users', currentUid), {
+          deviceStatus: 'active',
+          isOnline: true,
+        });
+      }
+    } catch (err) {
+      // Fail silently
+    }
   };
 
-  // Handle tab visibility changes
+  // Record user interaction (click, keypress, scroll)
+  const onUserInteraction = () => {
+    lastActivityTime = Date.now(); // Update interaction timestamp
+
+    clearTimeout(activityTimeout);
+    activityTimeout = setTimeout(updateActivity, ACTIVITY_UPDATE_INTERVAL);
+
+    // If was idle, mark as active again
+    (async () => {
+      try {
+        const currentUid = auth.currentUser?.uid;
+        if (!currentUid) return;
+        const { updateDoc, serverTimestamp } = await import('firebase/firestore');
+        await updateDoc(doc(db, 'users', currentUid), {
+          deviceStatus: 'active',
+          isOnline: true,
+          lastActivity: serverTimestamp(),
+        });
+      } catch (err) {
+        // Fail silently
+      }
+    })();
+  };
+
+  // Handle tab visibility changes (tab switch or display off)
   const onVisibilityChange = async () => {
     try {
       const currentUid = auth.currentUser?.uid;
@@ -167,18 +222,21 @@ export const initActivityTracker = () => {
       const { updateDoc, serverTimestamp } = await import('firebase/firestore');
 
       if (isNowVisible && !lastTabVisibility) {
-        // Tab became visible - user likely returned
+        // Tab became visible - user returned
+        lastActivityTime = Date.now();
         lastSessionStart = new Date();
         await updateDoc(doc(db, 'users', currentUid), {
           lastActivity: serverTimestamp(),
           lastSessionStart: serverTimestamp(),
           isOnline: true,
+          deviceStatus: 'active',
         });
       } else if (!isNowVisible && lastTabVisibility) {
-        // Tab became hidden - user is away but not logged out
+        // Tab became hidden - could be phone locked, display off, or switched app
         await updateDoc(doc(db, 'users', currentUid), {
           lastTabHidden: serverTimestamp(),
           isOnline: false,
+          deviceStatus: 'tab-hidden',
         });
       }
 
@@ -188,34 +246,38 @@ export const initActivityTracker = () => {
     }
   };
 
-  // Track page/tab changes
-  const onPageChange = async () => {
+  // Handle page/app being paused (mobile)
+  const onPageVisibilityPause = async () => {
     try {
       const currentUid = auth.currentUser?.uid;
       if (!currentUid) return;
 
       const { updateDoc, serverTimestamp } = await import('firebase/firestore');
-      const currentPage = window.location.pathname.split('/').pop() || 'dashboard';
-
       await updateDoc(doc(db, 'users', currentUid), {
-        lastPageView: currentPage,
-        lastPageViewTime: serverTimestamp(),
+        lastPageHidden: serverTimestamp(),
+        isOnline: false,
+        deviceStatus: 'paused',
       });
     } catch (err) {
       // Fail silently
     }
   };
 
-  // Track: user interactions
+  // Track: user interactions (reset idle timer)
   document.addEventListener('click', onUserInteraction, { passive: true });
   document.addEventListener('keydown', onUserInteraction, { passive: true });
   document.addEventListener('scroll', onUserInteraction, { passive: true });
+  document.addEventListener('touchstart', onUserInteraction, { passive: true });
+  document.addEventListener('touchmove', onUserInteraction, { passive: true });
 
-  // Track: tab visibility (important for "always open" users)
+  // Track: tab visibility & screen on/off
   document.addEventListener('visibilitychange', onVisibilityChange, { passive: true });
 
-  // Track: page navigation
-  window.addEventListener('popstate', onPageChange, { passive: true });
+  // Track: page being paused (mobile apps)
+  document.addEventListener('pause', onPageVisibilityPause, { passive: true });
+
+  // Periodic idle check (every 1 minute)
+  idleCheckInterval = setInterval(checkIdleStatus, 60 * 1000);
 
   // Set initial session start
   (async () => {
@@ -224,10 +286,12 @@ export const initActivityTracker = () => {
       if (!currentUid) return;
       const { updateDoc, serverTimestamp } = await import('firebase/firestore');
       lastSessionStart = new Date();
+      lastActivityTime = Date.now();
       await updateDoc(doc(db, 'users', currentUid), {
         lastActivity: serverTimestamp(),
         lastSessionStart: serverTimestamp(),
         isOnline: true,
+        deviceStatus: 'active',
       });
     } catch (err) {
       // Fail silently
@@ -239,7 +303,10 @@ export const initActivityTracker = () => {
     document.removeEventListener('click', onUserInteraction);
     document.removeEventListener('keydown', onUserInteraction);
     document.removeEventListener('scroll', onUserInteraction);
+    document.removeEventListener('touchstart', onUserInteraction);
+    document.removeEventListener('touchmove', onUserInteraction);
     document.removeEventListener('visibilitychange', onVisibilityChange);
-    window.removeEventListener('popstate', onPageChange);
+    document.removeEventListener('pause', onPageVisibilityPause);
+    clearInterval(idleCheckInterval);
   });
 };

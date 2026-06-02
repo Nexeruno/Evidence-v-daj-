@@ -55,7 +55,9 @@ export const AIAnalyzePanel = () => {
           lastSessionStart: userData.lastSessionStart,
           lastSessionEnd: userData.lastSessionEnd,
           isOnline: userData.isOnline || false,
+          deviceStatus: userData.deviceStatus || 'unknown', // active, idle, tab-hidden, paused
           lastTabHidden: userData.lastTabHidden,
+          lastPageHidden: userData.lastPageHidden,
           lastLogout: userData.lastLogout,
           loginCount: userData.loginCount || 0,
         };
@@ -68,23 +70,36 @@ export const AIAnalyzePanel = () => {
           return { ...activeUser, ...user, status: 'active' };
         }
 
-        // Calculate if user is really inactive or just has tab hidden
+        // Determine display status based on deviceStatus and timing
         const daysSinceActivity = calculateDaysSinceLastActivity(user.lastActivity);
+        const isRecentlyActive = daysSinceActivity <= 0; // Today
         const isTabJustHidden = user.lastTabHidden &&
           calculateDaysSinceLastActivity(user.lastTabHidden) === 0;
+        const isIdleJustDetected = user.deviceStatus === 'idle';
 
-        const displayStatus = isTabJustHidden ? 'tab-hidden' : 'inactive';
+        let displayStatus = 'inactive'; // Default
+        if (user.deviceStatus === 'active' && isRecentlyActive) {
+          displayStatus = 'active';
+        } else if (isIdleJustDetected) {
+          displayStatus = 'device-idle'; // Device locked / screen off
+        } else if (isTabJustHidden) {
+          displayStatus = 'tab-hidden'; // Tab switched / browser minimized
+        } else if (user.deviceStatus === 'paused') {
+          displayStatus = 'app-paused'; // App paused on mobile
+        }
 
         return {
           uid: user.uid,
           username: user.username,
           status: displayStatus,
+          deviceStatus: user.deviceStatus,
           daysSinceActive: daysSinceActivity,
           isOnline: user.isOnline,
           lastActivity: user.lastActivity,
           lastSessionStart: user.lastSessionStart,
           lastSessionEnd: user.lastSessionEnd,
           lastTabHidden: user.lastTabHidden,
+          lastPageHidden: user.lastPageHidden,
           lastLogout: user.lastLogout,
           loginCount: user.loginCount,
           totalSessions: 0,
@@ -94,11 +109,17 @@ export const AIAnalyzePanel = () => {
         };
       });
 
-      // Sort: active first, then tab-hidden (present but away), then inactive (logged off)
+      // Sort: active → tab-hidden → device-idle → app-paused → inactive/offline
       merged.sort((a, b) => {
-        const statusOrder = { active: 0, 'tab-hidden': 1, inactive: 2 };
-        const aOrder = statusOrder[a.status] ?? 3;
-        const bOrder = statusOrder[b.status] ?? 3;
+        const statusOrder = {
+          active: 0,
+          'tab-hidden': 1,
+          'device-idle': 2,
+          'app-paused': 3,
+          inactive: 4,
+        };
+        const aOrder = statusOrder[a.status] ?? 5;
+        const bOrder = statusOrder[b.status] ?? 5;
         if (aOrder !== bOrder) return aOrder - bOrder;
         // Within same status: by last activity
         return (b.lastActivity || 0) - (a.lastActivity || 0);
@@ -388,8 +409,14 @@ export const AIAnalyzePanel = () => {
                 if (userInsight.status === 'tab-hidden') {
                   return `🟡 Tab skrytý`;
                 }
+                if (userInsight.status === 'device-idle') {
+                  return `📱 Telefon zamčený`;
+                }
+                if (userInsight.status === 'app-paused') {
+                  return `⏸️ App paused`;
+                }
                 if (userInsight.status === 'inactive') {
-                  return `⏸️ ${userInsight.daysSinceActive || 0} dní`;
+                  return `⏹️ ${userInsight.daysSinceActive || 0} dní`;
                 }
                 return 'Bez dat';
               }}
@@ -432,17 +459,25 @@ export const AIAnalyzePanel = () => {
                   >
                     <td className="py-3 px-3 font-medium">{user.username}</td>
                     <td className="py-3 px-3">
-                      {user.status === 'inactive' ? (
-                        <span className="text-xs bg-gray-400 text-white px-2 py-1 rounded">
-                          ⏸️ {user.daysSinceActive} dní
+                      {user.status === 'active' ? (
+                        <span className="text-xs bg-green-400 text-green-900 px-2 py-1 rounded font-semibold">
+                          🟢 {user.totalSessions}
                         </span>
                       ) : user.status === 'tab-hidden' ? (
                         <span className="text-xs bg-yellow-400 text-yellow-900 px-2 py-1 rounded font-semibold">
                           🟡 Tab skrytý
                         </span>
+                      ) : user.status === 'device-idle' ? (
+                        <span className="text-xs bg-orange-400 text-orange-900 px-2 py-1 rounded font-semibold">
+                          📱 Zamčeno
+                        </span>
+                      ) : user.status === 'app-paused' ? (
+                        <span className="text-xs bg-blue-400 text-blue-900 px-2 py-1 rounded font-semibold">
+                          ⏸️ Paused
+                        </span>
                       ) : (
-                        <span className="text-xs bg-green-400 text-green-900 px-2 py-1 rounded font-semibold">
-                          🟢 {user.totalSessions}
+                        <span className="text-xs bg-gray-400 text-white px-2 py-1 rounded">
+                          ⏹️ {user.daysSinceActive} dní
                         </span>
                       )}
                     </td>
@@ -478,30 +513,41 @@ export const AIAnalyzePanel = () => {
               <div
                 key={user.uid}
                 className={`p-3 rounded-lg border ${
-                  user.status === 'inactive'
-                    ? 'bg-gray-50 dark:bg-gray-900 border-gray-300 dark:border-gray-700'
+                  user.status === 'active'
+                    ? 'bg-green-50 dark:bg-green-900/20 border-green-300 dark:border-green-700'
                     : user.status === 'tab-hidden'
                     ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-300 dark:border-yellow-700'
-                    : 'bg-light-bg dark:bg-dark-bg border-light-border dark:border-dark-border'
+                    : user.status === 'device-idle'
+                    ? 'bg-orange-50 dark:bg-orange-900/20 border-orange-300 dark:border-orange-700'
+                    : user.status === 'app-paused'
+                    ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-700'
+                    : 'bg-gray-50 dark:bg-gray-900 border-gray-300 dark:border-gray-700'
                 }`}
               >
                 <div className="flex justify-between items-center mb-2">
                   <h4 className="font-semibold text-light-text dark:text-dark-text">{user.username}</h4>
-                  {user.status === 'inactive' && (
-                    <span className="text-xs bg-gray-400 text-white px-2 py-1 rounded">⏸️ {user.daysSinceActive}d</span>
+                  {user.status === 'active' && (
+                    <span className="text-xs bg-green-400 text-green-900 px-2 py-1 rounded font-semibold">🟢 Active</span>
                   )}
                   {user.status === 'tab-hidden' && (
                     <span className="text-xs bg-yellow-400 text-yellow-900 px-2 py-1 rounded font-semibold">🟡 Tab skrytý</span>
+                  )}
+                  {user.status === 'device-idle' && (
+                    <span className="text-xs bg-orange-400 text-orange-900 px-2 py-1 rounded font-semibold">📱 Zamčeno</span>
+                  )}
+                  {user.status === 'app-paused' && (
+                    <span className="text-xs bg-blue-400 text-blue-900 px-2 py-1 rounded font-semibold">⏸️ Paused</span>
+                  )}
+                  {user.status === 'inactive' && (
+                    <span className="text-xs bg-gray-400 text-white px-2 py-1 rounded">⏹️ {user.daysSinceActive}d</span>
                   )}
                 </div>
 
                 <div className="grid grid-cols-3 gap-2 mb-3 text-xs">
                   <div className="p-2 bg-light-card dark:bg-dark-card rounded">
-                    <p className="text-light-textMuted dark:text-dark-textMuted">
-                      {user.status === 'inactive' || user.status === 'tab-hidden' ? 'Status' : 'Sezení'}
-                    </p>
+                    <p className="text-light-textMuted dark:text-dark-textMuted">Status</p>
                     <p className="font-bold">
-                      {user.status === 'inactive' ? '⏸️ Offline' : user.status === 'tab-hidden' ? '🟡 Skrytý' : user.totalSessions}
+                      {user.status === 'active' ? '🟢' : user.status === 'tab-hidden' ? '🟡' : user.status === 'device-idle' ? '📱' : user.status === 'app-paused' ? '⏸️' : '⏹️'}
                     </p>
                   </div>
                   <div className="p-2 bg-light-card dark:bg-dark-card rounded">
