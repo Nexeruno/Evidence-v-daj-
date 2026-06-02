@@ -1,192 +1,306 @@
-import { CheckCircle, AlertCircle, Target, Zap, TrendingUp, Lightbulb } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Trash2, Printer, ChevronDown, ChevronUp, Loader } from 'lucide-react';
+import { db, auth } from '../../utils/firebase';
+import { collection, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
 
 export const AILearningPanel = () => {
-  const capabilities = [
-    { name: 'Sběr chování uživatelů', desc: 'Trackuje čas v sekcích, klikání, zadávání textu bez Login/Logout' },
-    { name: 'Časové analýzy', desc: 'Ví, kdy a jak dlouho se uživatelé pohybují v aplikaci' },
-    { name: 'Kategorické vzorce', desc: 'Pozoruje, které kategorie se používají a jak často' },
-    { name: 'Opakující se chování', desc: 'Detekuje opakující se vzorce v zadávání záznamů' },
-    { name: 'Per-user analýzy', desc: 'Každý uživatel má separátní profil a historii' },
-    { name: 'Bezpečný sběr dat', desc: 'Nikdy se nesbírají finanční data, pouze chování' },
-  ];
+  const [reports, setReports] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [expandedId, setExpandedId] = useState(null);
+  const [token, setToken] = useState(null);
 
-  const limitations = [
-    { name: 'Bez obsahu transakcí', desc: 'Neví, co konkrétně uživatel zadal (částky, názvy)' },
-    { name: 'Bez psychologických dat', desc: 'Nemůže dedukovat proč uživatel něco dělá' },
-    { name: 'Bez budoucích prediktů', desc: 'Nemůže předpovědět budoucí chování' },
-    { name: 'Bez chatovacího rozhraní', desc: 'Nemůže komunikovat s uživatelem v reálném čase' },
-    { name: 'Bez skrytých vlivů', desc: 'Nevidí externí faktory (tržní podmínky, osobní eventos)' },
-  ];
+  // Get auth token
+  useEffect(() => {
+    const unsubAuth = auth.onAuthStateChanged(async (user) => {
+      if (user) {
+        const userToken = await user.getIdToken();
+        setToken(userToken);
+      }
+    });
+    return () => unsubAuth();
+  }, []);
 
-  const gaps = [
-    {
-      title: 'Prediktivní modelování',
-      desc: 'AI by mohla předpovědět budoucí chování (např. kdy uživatel přidá další záznam)',
-      effort: 'Střední',
-      impact: 'Vysoký'
-    },
-    {
-      title: 'Anomálie detekce',
-      desc: 'Automaticky detekovat neobvyklé chování (spam, chyby, nezvyklé používání)',
-      effort: 'Nízký',
-      impact: 'Vysoký'
-    },
-    {
-      title: 'Doporučovací systém',
-      desc: 'Navrhovat kategorie nebo optimalizace na základě chování',
-      effort: 'Střední',
-      impact: 'Střední'
-    },
-    {
-      title: 'Sentiment analýza',
-      desc: 'Analyzovat náladu či spokojenost z chování (rychlost zadávání, chyby)',
-      effort: 'Vysoký',
-      impact: 'Nízký'
-    },
-    {
-      title: 'Skupinové analýzy',
-      desc: 'Porovnávat chování mezi skupinami uživatelů a nacházet vzorce',
-      effort: 'Střední',
-      impact: 'Střední'
-    },
-  ];
+  // Load reports from Firestore
+  useEffect(() => {
+    try {
+      const q = query(
+        collection(db, 'aiLearningReports'),
+        orderBy('createdAt', 'desc'),
+        limit(50)
+      );
 
-  const improvements = [
-    { feature: '🔊 Explainability', desc: 'Vysvětlit proč AI udělala určitý závěr' },
-    { feature: '📈 Real-time insights', desc: 'Zobrazovat insights v reálném čase místo každých 10 hodin' },
-    { feature: '🎯 Custom alerts', desc: 'Upozornit na anomálie nebo zajímavé vzoce automaticky' },
-    { feature: '📊 Exporty', desc: 'Exportovat analýzy do PDF/CSV pro hlubší studium' },
-    { feature: '🔄 Feedback loop', desc: 'Učit se z tvé zpětné vazby na správnost analýz' },
-  ];
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const data = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
+        console.log('Reports loaded:', data.length);
+        setReports(data);
+        setLoading(false);
+      });
+
+      return () => unsubscribe();
+    } catch (err) {
+      console.error('Firestore error:', err);
+      setLoading(false);
+    }
+  }, []);
+
+  const handleDelete = async (reportId) => {
+    if (!token) {
+      alert('Není autentifikace');
+      return;
+    }
+
+    if (!window.confirm('Smazat tento report?')) return;
+
+    try {
+      const response = await fetch(
+        'https://europe-west1-evidence-vydaju.cloudfunctions.net/aiDeleteLearningReport',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ reportId }),
+        }
+      );
+
+      if (!response.ok) throw new Error('Delete failed');
+      setReports((prev) => prev.filter((r) => r.id !== reportId));
+    } catch (err) {
+      console.error('Delete error:', err);
+      alert('Chyba: ' + err.message);
+    }
+  };
+
+  const formatDate = (timestamp) => {
+    if (!timestamp) return '—';
+    const date = timestamp.toDate?.() || new Date(timestamp);
+    return date.toLocaleDateString('cs-CZ', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader className="animate-spin text-blue-500" size={32} />
+      </div>
+    );
+  }
+
+  if (reports.length === 0) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-gray-500">
+          Žádné reporty. Spusť analýzu v sekci 'Kontrola'.
+        </p>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6">
-      {/* Co AI Umí */}
-      <div className="card">
-        <div className="flex items-center gap-3 mb-4">
-          <CheckCircle size={24} className="text-green-600" />
-          <h3 className="text-lg font-semibold">✅ Co AI Umí Dělat</h3>
-        </div>
+    <div className="space-y-4">
+      {/* Desktop table */}
+      <div className="hidden md:block overflow-x-auto">
+        <table className="w-full text-sm border-collapse">
+          <thead>
+            <tr className="bg-gray-100 border-b">
+              <th className="px-4 py-3 text-left font-semibold">Vytvořeno</th>
+              <th className="px-4 py-3 text-left font-semibold">Spuštěno</th>
+              <th className="px-4 py-3 text-right font-semibold">Aktivní (24h)</th>
+              <th className="px-4 py-3 text-right font-semibold">Výdaje (24h)</th>
+              <th className="px-4 py-3 text-right font-semibold">Příjmy (24h)</th>
+              <th className="px-4 py-3 text-center font-semibold">Akce</th>
+            </tr>
+          </thead>
+          <tbody>
+            {reports.map((report) => (
+              <tbody key={report.id}>
+                {/* Main row */}
+                <tr
+                  className="border-b hover:bg-gray-50 cursor-pointer"
+                  onClick={() =>
+                    setExpandedId(expandedId === report.id ? null : report.id)
+                  }
+                >
+                  <td className="px-4 py-3">{formatDate(report.createdAt)}</td>
+                  <td className="px-4 py-3">
+                    <span
+                      className={`px-3 py-1 rounded text-xs font-semibold ${
+                        report.triggeredBy === 'manual'
+                          ? 'bg-blue-100 text-blue-800'
+                          : 'bg-gray-100 text-gray-800'
+                      }`}
+                    >
+                      {report.triggeredBy === 'manual' ? '🖱️ Ručně' : '⏰ Auto'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right font-semibold">
+                    {report.timeWindows?.['24h']?.usersActive || 0}
+                  </td>
+                  <td className="px-4 py-3 text-right text-red-600 font-semibold">
+                    {report.timeWindows?.['24h']?.vydaje || 0}
+                  </td>
+                  <td className="px-4 py-3 text-right text-green-600 font-semibold">
+                    {report.timeWindows?.['24h']?.prijmy || 0}
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <div className="flex justify-center gap-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          window.print();
+                        }}
+                        className="p-1 hover:bg-blue-100 rounded"
+                        title="Tisk"
+                      >
+                        <Printer size={16} className="text-blue-600" />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDelete(report.id);
+                        }}
+                        className="p-1 hover:bg-red-100 rounded"
+                        title="Smazat"
+                      >
+                        <Trash2 size={16} className="text-red-600" />
+                      </button>
+                      {expandedId === report.id ? (
+                        <ChevronUp size={16} />
+                      ) : (
+                        <ChevronDown size={16} />
+                      )}
+                    </div>
+                  </td>
+                </tr>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-          {capabilities.map((cap, idx) => (
-            <div
-              key={idx}
-              className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg"
-            >
-              <div className="flex items-start gap-2">
-                <CheckCircle size={16} className="text-green-600 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="font-medium text-green-900 dark:text-green-200">{cap.name}</p>
-                  <p className="text-sm text-green-700 dark:text-green-300 mt-1">{cap.desc}</p>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+                {/* Expanded detail */}
+                {expandedId === report.id && (
+                  <tr className="bg-blue-50">
+                    <td colSpan="6" className="px-4 py-4">
+                      <ReportDetail report={report} />
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            ))}
+          </tbody>
+        </table>
       </div>
 
-      {/* Co AI Neumí */}
-      <div className="card">
-        <div className="flex items-center gap-3 mb-4">
-          <AlertCircle size={24} className="text-yellow-600" />
-          <h3 className="text-lg font-semibold">⚠️ Onde AI Má Limity</h3>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-          {limitations.map((lim, idx) => (
+      {/* Mobile cards */}
+      <div className="md:hidden space-y-3">
+        {reports.map((report) => (
+          <div key={report.id} className="bg-white rounded-lg border">
+            {/* Card header */}
             <div
-              key={idx}
-              className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg"
-            >
-              <div className="flex items-start gap-2">
-                <AlertCircle size={16} className="text-yellow-600 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="font-medium text-yellow-900 dark:text-yellow-200">{lim.name}</p>
-                  <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-1">{lim.desc}</p>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Mezery & Příležitosti */}
-      <div className="card">
-        <div className="flex items-center gap-3 mb-4">
-          <Target size={24} className="text-blue-600" />
-          <h3 className="text-lg font-semibold">🎯 Oblasti k Vylepšení</h3>
-        </div>
-
-        <div className="space-y-3">
-          {gaps.map((gap, idx) => (
-            <div
-              key={idx}
-              className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg"
+              className="p-4 cursor-pointer hover:bg-gray-50"
+              onClick={() =>
+                setExpandedId(expandedId === report.id ? null : report.id)
+              }
             >
               <div className="flex items-start justify-between mb-2">
-                <h4 className="font-semibold text-blue-900 dark:text-blue-200">{gap.title}</h4>
-                <div className="flex gap-2 text-xs">
-                  <span className={`px-2 py-1 rounded font-medium ${
-                    gap.effort === 'Nízký' ? 'bg-green-200 dark:bg-green-700 text-green-800 dark:text-green-100' :
-                    gap.effort === 'Střední' ? 'bg-yellow-200 dark:bg-yellow-700 text-yellow-800 dark:text-yellow-100' :
-                    'bg-red-200 dark:bg-red-700 text-red-800 dark:text-red-100'
-                  }`}>
-                    Úsilí: {gap.effort}
-                  </span>
-                  <span className={`px-2 py-1 rounded font-medium ${
-                    gap.impact === 'Vysoký' ? 'bg-red-200 dark:bg-red-700 text-red-800 dark:text-red-100' :
-                    gap.impact === 'Střední' ? 'bg-yellow-200 dark:bg-yellow-700 text-yellow-800 dark:text-yellow-100' :
-                    'bg-green-200 dark:bg-green-700 text-green-800 dark:text-green-100'
-                  }`}>
-                    Dopad: {gap.impact}
-                  </span>
-                </div>
-              </div>
-              <p className="text-sm text-blue-700 dark:text-blue-300">{gap.desc}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Návrhy na Vylepšení */}
-      <div className="card">
-        <div className="flex items-center gap-3 mb-4">
-          <Lightbulb size={24} className="text-orange-600" />
-          <h3 className="text-lg font-semibold">💡 Jak Zlepšit AI Schopnosti</h3>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-          {improvements.map((imp, idx) => (
-            <div
-              key={idx}
-              className="p-3 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg"
-            >
-              <div className="flex items-start gap-2">
-                <Lightbulb size={16} className="text-orange-600 mt-0.5 flex-shrink-0" />
                 <div>
-                  <p className="font-medium text-orange-900 dark:text-orange-200">{imp.feature}</p>
-                  <p className="text-sm text-orange-700 dark:text-orange-300 mt-1">{imp.desc}</p>
+                  <p className="text-sm font-semibold text-gray-900">
+                    {formatDate(report.createdAt)}
+                  </p>
+                  <span
+                    className={`inline-block mt-1 px-2 py-1 rounded text-xs font-semibold ${
+                      report.triggeredBy === 'manual'
+                        ? 'bg-blue-100 text-blue-800'
+                        : 'bg-gray-100 text-gray-800'
+                    }`}
+                  >
+                    {report.triggeredBy === 'manual' ? '🖱️ Ručně' : '⏰ Auto'}
+                  </span>
+                </div>
+                {expandedId === report.id ? (
+                  <ChevronUp size={20} className="text-gray-500" />
+                ) : (
+                  <ChevronDown size={20} className="text-gray-500" />
+                )}
+              </div>
+
+              {/* Quick stats */}
+              <div className="grid grid-cols-3 gap-2 mt-3">
+                <div className="text-center">
+                  <p className="text-xs text-gray-600">Aktivní (24h)</p>
+                  <p className="text-lg font-bold text-gray-900">
+                    {report.timeWindows?.['24h']?.usersActive || 0}
+                  </p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xs text-gray-600">Výdaje (24h)</p>
+                  <p className="text-lg font-bold text-red-600">
+                    {report.timeWindows?.['24h']?.vydaje || 0}
+                  </p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xs text-gray-600">Příjmy (24h)</p>
+                  <p className="text-lg font-bold text-green-600">
+                    {report.timeWindows?.['24h']?.prijmy || 0}
+                  </p>
                 </div>
               </div>
             </div>
-          ))}
-        </div>
-      </div>
 
-      {/* Strategie */}
-      <div className="card border-l-4 border-purple-500 bg-purple-50 dark:bg-purple-950">
-        <div className="flex items-center gap-3 mb-3">
-          <TrendingUp size={20} className="text-purple-600" />
-          <h4 className="font-semibold text-purple-900 dark:text-purple-200">🚀 Dlouhodobá Strategie</h4>
-        </div>
-        <ul className="text-sm text-purple-800 dark:text-purple-300 space-y-2">
-          <li>• <strong>Fáze 1:</strong> Akumulovat data (sběr bez výstupu) — právě zde jsme</li>
-          <li>• <strong>Fáze 2:</strong> Detektovat anomálie a zajímavé vzorce (bez prediktů)</li>
-          <li>• <strong>Fáze 3:</strong> Budovat prediktivní modely (co se bude dít)</li>
-          <li>• <strong>Fáze 4:</strong> Doporučovací systém (jak se zvýšit produktivita)</li>
-          <li>• <strong>Fáze 5:</strong> Autonomní optimalizace (AI se sama sebou zlepšuje)</li>
-        </ul>
+            {/* Expanded detail */}
+            {expandedId === report.id && (
+              <div className="border-t px-4 py-4 bg-blue-50">
+                <ReportDetail report={report} />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const ReportDetail = ({ report }) => {
+  const windows = ['5min', '30min', '1h', '2h', '4h', '6h', '8h', '12h', '24h'];
+
+  return (
+    <div className="space-y-4">
+      <h4 className="font-bold text-lg text-gray-900">Časová okna</h4>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm border-collapse">
+          <thead>
+            <tr className="bg-gray-200">
+              <th className="px-3 py-2 text-left font-semibold">Okno</th>
+              <th className="px-3 py-2 text-right font-semibold">Už.</th>
+              <th className="px-3 py-2 text-right font-semibold">Sez.</th>
+              <th className="px-3 py-2 text-right font-semibold">Výd.</th>
+              <th className="px-3 py-2 text-right font-semibold">Příj.</th>
+            </tr>
+          </thead>
+          <tbody>
+            {windows.map((label) => {
+              const w = report.timeWindows?.[label] || {};
+              return (
+                <tr key={label} className="border-b hover:bg-gray-50">
+                  <td className="px-3 py-2 font-semibold">{label}</td>
+                  <td className="px-3 py-2 text-right">{w.usersActive || 0}</td>
+                  <td className="px-3 py-2 text-right">{w.sessions || 0}</td>
+                  <td className="px-3 py-2 text-right text-red-600 font-semibold">
+                    {w.vydaje || 0}
+                  </td>
+                  <td className="px-3 py-2 text-right text-green-600 font-semibold">
+                    {w.prijmy || 0}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   );
