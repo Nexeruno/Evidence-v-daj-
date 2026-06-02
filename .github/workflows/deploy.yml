@@ -10,25 +10,31 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
+      pages: write
+      id-token: write
 
     steps:
       - name: 📥 Checkout code
+        id: checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: 🔧 Setup Node.js
+        id: setup
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
 
       - name: 📦 Install dependencies
+        id: install
         run: npm ci
         continue-on-error: false
 
       - name: 🔍 Run linter
+        id: linter
         run: |
           echo "▶️ Starting ESLint..."
           npm run lint
@@ -40,6 +46,7 @@ jobs:
           fi
 
       - name: 🧪 Run unit tests
+        id: tests
         run: |
           echo "▶️ Starting unit tests..."
           npm test
@@ -59,6 +66,7 @@ jobs:
           VITE_ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
 
       - name: 🔨 Build application
+        id: build
         run: |
           echo "▶️ Building application..."
           npm run build
@@ -78,6 +86,7 @@ jobs:
           VITE_ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
 
       - name: 🌐 Smoke tests (local)
+        id: smoke
         run: |
           echo "▶️ Running smoke tests on local build..."
 
@@ -116,28 +125,25 @@ jobs:
 
           echo "✅ Smoke tests passed"
 
-      - name: 📤 Commit build to main
-        run: |
-          echo "▶️ Committing build artifacts..."
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/
-          git commit -m "deploy: Build output [skip ci]" || echo "ℹ️ No changes to commit"
-          git push origin main
-          if [ $? -eq 0 ]; then
-            echo "✅ Build artifacts committed and pushed"
-          else
-            echo "⚠️ Failed to push (might be up-to-date)"
-            exit 0
-          fi
+      - name: 📤 Upload Pages artifact
+        id: upload-pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: 'docs'
+
+      - name: 🚀 Deploy to GitHub Pages
+        id: deploy-pages
+        uses: actions/deploy-pages@v4
 
       - name: 🎉 Deployment successful
+        id: success
         run: |
           echo "✅✅✅ DEPLOYMENT COMPLETE ✅✅✅"
           echo "📍 Deployed to: https://nexeruno.github.io/Evidence-v-daj-/"
           echo "⏱️ Completed at: $(date)"
 
       - name: 🚨 Notify on failure (Linter)
+        id: notify-linter
         if: failure() && steps.linter.outcome == 'failure'
         run: |
           echo "❌ DEPLOYMENT FAILED: Linter check failed"
@@ -145,6 +151,7 @@ jobs:
           exit 1
 
       - name: 🚨 Notify on failure (Tests)
+        id: notify-tests
         if: failure() && steps.tests.outcome == 'failure'
         run: |
           echo "❌ DEPLOYMENT FAILED: Unit tests failed"
@@ -152,6 +159,7 @@ jobs:
           exit 1
 
       - name: 🚨 Notify on failure (Build)
+        id: notify-build
         if: failure() && steps.build.outcome == 'failure'
         run: |
           echo "❌ DEPLOYMENT FAILED: Build failed"
@@ -159,6 +167,7 @@ jobs:
           exit 1
 
       - name: 🚨 Notify on failure (Smoke tests)
+        id: notify-smoke
         if: failure() && steps.smoke.outcome == 'failure'
         run: |
           echo "❌ DEPLOYMENT FAILED: Smoke tests failed"
