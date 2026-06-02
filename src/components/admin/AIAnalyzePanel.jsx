@@ -10,8 +10,9 @@ const COLORS = ['#3B82F6', '#EF4444', '#10B981'];
 
 export const AIAnalyzePanel = () => {
   const [allInsights, setAllInsights] = useState([]);
-  const [selectedUserInsights, setSelectedUserInsights] = useState(null);
+  const [allUsers, setAllUsers] = useState([]);
   const [selectedUid, setSelectedUid] = useState(null);
+  const [selectedUserInsights, setSelectedUserInsights] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const calculateDaysSinceLastActivity = (lastActivityDate) => {
@@ -75,6 +76,10 @@ export const AIAnalyzePanel = () => {
       });
 
       setAllInsights(merged);
+      setAllUsers(allUsers);
+      if (!selectedUid && allUsers.length > 0) {
+        setSelectedUid(allUsers[0].uid);
+      }
     } catch (err) {
       console.error('Error fetching insights:', err);
       toast.error('Chyba při načítání analýz');
@@ -327,17 +332,46 @@ export const AIAnalyzePanel = () => {
   }
 
   // List view
-  return (
-    <div className="card">
-      <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-        <TrendingUp size={20} /> Analýza všech uživatelů
-      </h3>
+  const filteredInsights = selectedUid
+    ? allInsights.filter(insight => insight.uid === selectedUid)
+    : allInsights;
 
-      {allInsights.length === 0 ? (
-        <p className="text-center py-8 text-light-textMuted dark:text-dark-textMuted">Zatím nejsou žádná data</p>
-      ) : (
-        <>
-          {/* Desktop table */}
+  return (
+    <div className="space-y-4">
+      <div className="card">
+        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <TrendingUp size={20} /> Analýza všech uživatelů
+        </h3>
+
+        {/* User filter buttons */}
+        {allUsers.length > 1 && (
+          <div className="mb-4 pb-4 border-b border-light-border dark:border-dark-border">
+            <p className="text-xs text-light-textMuted dark:text-dark-textMuted mb-2">Filtr uživatelů:</p>
+            <div className="flex gap-2 flex-wrap">
+              {allUsers.map(user => (
+                <button
+                  key={user.uid}
+                  onClick={() => setSelectedUid(user.uid)}
+                  className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
+                    selectedUid === user.uid
+                      ? 'bg-purple-500 text-white'
+                      : 'bg-light-bg dark:bg-dark-bg text-light-text dark:text-dark-text hover:bg-light-border dark:hover:bg-dark-border'
+                  }`}
+                >
+                  {user.username}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="card">
+        {allInsights.length === 0 ? (
+          <p className="text-center py-8 text-light-textMuted dark:text-dark-textMuted">Zatím nejsou žádná data</p>
+        ) : (
+          <>
+            {/* Desktop table */}
           <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -352,7 +386,7 @@ export const AIAnalyzePanel = () => {
                 </tr>
               </thead>
               <tbody>
-                {allInsights.map(user => (
+                {filteredInsights.map(user => (
                   <tr
                     key={user.uid}
                     className={`border-b border-light-border dark:border-dark-border ${
@@ -399,7 +433,7 @@ export const AIAnalyzePanel = () => {
 
           {/* Mobile cards */}
           <div className="md:hidden space-y-3">
-            {allInsights.map(user => (
+            {filteredInsights.map(user => (
               <div
                 key={user.uid}
                 className={`p-3 rounded-lg border ${
@@ -452,8 +486,9 @@ export const AIAnalyzePanel = () => {
               </div>
             ))}
           </div>
-        </>
-      )}
+          </>
+        )}
+      </div>
     </div>
   );
 };
