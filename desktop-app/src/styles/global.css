@@ -1,0 +1,85 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  transition: background-color 200ms ease, border-color 200ms ease, color 200ms ease;
+}
+
+html {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+}
+
+body {
+  @apply bg-light-bg dark:bg-dark-bg text-light-text dark:text-dark-text;
+  transition: background-color 200ms ease, color 200ms ease;
+}
+
+html, body {
+  transition: background-color 200ms ease, color 200ms ease;
+}
+
+@layer base {
+  h1, h2, h3, h4, h5, h6 {
+    @apply text-light-text dark:text-dark-text;
+  }
+
+  p {
+    @apply text-light-textMuted dark:text-dark-textMuted;
+  }
+
+  button {
+    transition: all 200ms ease;
+  }
+
+  input, textarea, select {
+    @apply bg-light-card dark:bg-dark-card border border-light-border dark:border-dark-border text-light-text dark:text-dark-text;
+    transition: background-color 200ms ease, border-color 200ms ease, color 200ms ease;
+  }
+
+  input:focus, textarea:focus, select:focus {
+    @apply ring-2 ring-blue-500 dark:ring-blue-400;
+  }
+
+  a {
+    @apply text-blue-500 dark:text-blue-400;
+    transition: color 200ms ease;
+  }
+}
+
+/* Cards and containers */
+.card {
+  @apply bg-light-card dark:bg-dark-card border border-light-border dark:border-dark-border;
+  transition: background-color 200ms ease, border-color 200ms ease;
+}
+
+/* Inputs */
+.input-field {
+  @apply bg-light-card dark:bg-dark-card border border-light-border dark:border-dark-border text-light-text dark:text-dark-text focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400;
+  transition: background-color 200ms ease, border-color 200ms ease, color 200ms ease;
+}
+
+.select-field {
+  @apply bg-light-card dark:bg-dark-card border border-light-border dark:border-dark-border text-light-text dark:text-dark-text focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 cursor-pointer;
+  transition: background-color 200ms ease, border-color 200ms ease, color 200ms ease;
+}
+
+/* Tables */
+.table-header {
+  @apply bg-light-border dark:bg-dark-border text-light-text dark:text-dark-text;
+  transition: background-color 200ms ease;
+}
+
+.table-row {
+  @apply border-b border-light-border dark:border-dark-border;
+  transition: background-color 200ms ease, border-color 200ms ease;
+}
+
+.table-row:hover {
+  @apply bg-light-bg dark:bg-dark-bg;
+}

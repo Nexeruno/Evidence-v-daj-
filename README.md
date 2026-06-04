@@ -6,7 +6,48 @@ Modern financial tracking application with production-grade DevOps and security 
 
 ---
 
-## Quick Start
+## 🎯 Components
+
+This repository contains two main applications:
+
+### 1. **Evidence v Datech** (Web App)
+- Main financial tracking application
+- React 18 + TypeScript
+- Firestore backend
+- Run with: `npm run dev`
+
+### 2. **AURIX Core** (Desktop App - New!)
+- Admin & ML control center
+- Electron + React
+- Local desktop launcher
+- **🚀 [Quick Start: 5 Minutes](./QUICK_SETUP.md)**
+
+---
+
+## 🚀 Running AURIX Core (Desktop App)
+
+### Easiest Way (Windows)
+
+1. **First time setup:**
+   ```powershell
+   .\create-desktop-shortcut.ps1
+   ```
+
+2. **Then just double-click** `AURIX Core` on your desktop
+
+**[Full Setup Guide](./QUICK_SETUP.md)**
+
+### Command Line
+
+```bash
+cd desktop-app
+npm install
+npm run dev
+```
+
+---
+
+## Quick Start (Web App)
 
 ### Prerequisites
 - Node.js 20+

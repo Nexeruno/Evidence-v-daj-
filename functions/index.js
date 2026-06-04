@@ -2238,3 +2238,715 @@ exports.testMlPipeline = functions.region(REGION).https.onRequest(async (req, re
   });
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// 📚 TRAINING DATA MANAGEMENT - Admin functions for ML training
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * adminCreateTrainingData - Create new training data record
+ *
+ * POST /adminCreateTrainingData
+ * Authorization: Bearer <idToken>
+ *
+ * Body: {
+ *   type: "income_name" | "expense_name" | "category_rule" | "qa_example",
+ *   input: string,
+ *   expectedOutput: string,
+ *   category: string,
+ *   tags: string[],
+ *   note: string
+ * }
+ */
+exports.adminCreateTrainingData = functions
+  .region(REGION)
+  .https.onRequest(async (req, res) => {
+    // CORS preflight
+    if (req.method === 'OPTIONS') {
+      cors(req, res, () => res.sendStatus(200));
+      return;
+    }
+
+    cors(req, res, async () => {
+      try {
+        // 1. Verify auth token from Authorization header
+        const authHeader = req.get('Authorization') || '';
+        const token = authHeader.replace('Bearer ', '');
+
+        if (!token) {
+          return res.status(401).json({ error: 'Missing authorization token' });
+        }
+
+        const decodedToken = await verifyAuth(token);
+        // IMPORTANT: Never log token
+        logger.info(`adminCreateTrainingData called by ${decodedToken.email}`);
+
+        // 2. Check admin role (admin or ml_admin)
+        const userDoc = await db.collection('users').doc(decodedToken.uid).get();
+        const userRole = userDoc.data()?.role || decodedToken.customClaims?.role;
+
+        if (!['admin', 'ml_admin'].includes(userRole)) {
+          logger.warn(`Unauthorized adminCreateTrainingData attempt by ${decodedToken.email} (role: ${userRole})`);
+          return res.status(403).json({ error: 'Insufficient permissions' });
+        }
+
+        // 3. Validate input
+        const { type, input, expectedOutput, category, tags = [], note = '' } = req.body;
+
+        if (!type || !input || !expectedOutput) {
+          return res.status(400).json({ error: 'Missing required fields: type, input, expectedOutput' });
+        }
+
+        const validTypes = ['income_name', 'expense_name', 'category_rule', 'qa_example'];
+        if (!validTypes.includes(type)) {
+          return res.status(400).json({ error: `Invalid type. Must be one of: ${validTypes.join(', ')}` });
+        }
+
+        // 4. Create document in trainingData collection
+        const trainingDocRef = db.collection('trainingData').doc();
+
+        const trainingData = {
+          type,
+          input,
+          expectedOutput,
+          category: category || '',
+          tags: Array.isArray(tags) ? tags : [],
+          note,
+          approved: false,
+          createdBy: decodedToken.uid,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        };
+
+        await trainingDocRef.set(trainingData);
+
+        // 5. Log to audit trail
+        await logAdminAction(decodedToken.uid, 'TRAINING_DATA_CREATED', {
+          trainingDataId: trainingDocRef.id,
+          type,
+          category,
+          inputLength: String(input).length,
+        });
+
+        logger.info(`Training data created: ${trainingDocRef.id} by ${decodedToken.email}`);
+
+        // 6. Return safe response
+        res.status(201).json({
+          ok: true,
+          id: trainingDocRef.id,
+          message: `Training data created successfully`,
+        });
+
+      } catch (err) {
+        logger.error('adminCreateTrainingData error:', err);
+        res.status(500).json({ error: err.message || 'Internal server error' });
+      }
+    });
+  });
+
+/**
+ * adminGetTrainingData - Retrieve training data with filters and pagination
+ *
+ * GET /adminGetTrainingData?type=&category=&approved=&limit=&offset=
+ * Authorization: Bearer <idToken>
+ */
+exports.adminGetTrainingData = functions
+  .region(REGION)
+  .https.onRequest(async (req, res) => {
+    if (req.method === 'OPTIONS') {
+      cors(req, res, () => res.sendStatus(200));
+      return;
+    }
+
+    cors(req, res, async () => {
+      try {
+        // 1. Verify auth token
+        const authHeader = req.get('Authorization') || '';
+        const token = authHeader.replace('Bearer ', '');
+
+        if (!token) {
+          return res.status(401).json({ error: 'Missing authorization token' });
+        }
+
+        const decodedToken = await verifyAuth(token);
+
+        // 2. Check admin role
+        const userDoc = await db.collection('users').doc(decodedToken.uid).get();
+        const userRole = userDoc.data()?.role || decodedToken.customClaims?.role;
+
+        if (!['admin', 'ml_admin'].includes(userRole)) {
+          return res.status(403).json({ error: 'Insufficient permissions' });
+        }
+
+        // 3. Build query with filters
+        let query = db.collection('trainingData').orderBy('createdAt', 'desc');
+
+        const { type, category, approved, limit = 50, offset = 0 } = req.query;
+
+        if (type && type !== 'all') {
+          query = query.where('type', '==', type);
+        }
+
+        if (category && category !== 'all') {
+          query = query.where('category', '==', category);
+        }
+
+        if (approved !== undefined && approved !== 'all') {
+          const approvedBool = approved === 'true';
+          query = query.where('approved', '==', approvedBool);
+        }
+
+        // 4. Get total count and paginated data
+        const snapshot = await query.get();
+        const totalCount = snapshot.size;
+
+        const limitNum = Math.min(parseInt(limit) || 50, 100);
+        const offsetNum = parseInt(offset) || 0;
+
+        const items = snapshot.docs
+          .slice(offsetNum, offsetNum + limitNum)
+          .map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            createdAt: doc.data().createdAt?.toDate?.() || null,
+            updatedAt: doc.data().updatedAt?.toDate?.() || null,
+          }));
+
+        res.json({
+          ok: true,
+          items,
+          totalCount,
+          limit: limitNum,
+          offset: offsetNum,
+          hasMore: offsetNum + limitNum < totalCount,
+        });
+
+      } catch (err) {
+        logger.error('adminGetTrainingData error:', err);
+        res.status(500).json({ error: err.message });
+      }
+    });
+  });
+
+/**
+ * adminUpdateTrainingData - Update training data record
+ *
+ * POST /adminUpdateTrainingData
+ * Authorization: Bearer <idToken>
+ *
+ * Body: {
+ *   id: string,
+ *   input?: string,
+ *   expectedOutput?: string,
+ *   category?: string,
+ *   tags?: string[],
+ *   note?: string
+ * }
+ */
+exports.adminUpdateTrainingData = functions
+  .region(REGION)
+  .https.onRequest(async (req, res) => {
+    if (req.method === 'OPTIONS') {
+      cors(req, res, () => res.sendStatus(200));
+      return;
+    }
+
+    cors(req, res, async () => {
+      try {
+        // 1. Verify auth token
+        const authHeader = req.get('Authorization') || '';
+        const token = authHeader.replace('Bearer ', '');
+
+        if (!token) {
+          return res.status(401).json({ error: 'Missing authorization token' });
+        }
+
+        const decodedToken = await verifyAuth(token);
+
+        // 2. Check admin role
+        const userDoc = await db.collection('users').doc(decodedToken.uid).get();
+        const userRole = userDoc.data()?.role || decodedToken.customClaims?.role;
+
+        if (!['admin', 'ml_admin'].includes(userRole)) {
+          return res.status(403).json({ error: 'Insufficient permissions' });
+        }
+
+        // 3. Validate input
+        const { id, input, expectedOutput, category, tags, note } = req.body;
+
+        if (!id) {
+          return res.status(400).json({ error: 'Missing required field: id' });
+        }
+
+        // 4. Update document
+        const updates = {
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        };
+
+        if (input !== undefined) updates.input = input;
+        if (expectedOutput !== undefined) updates.expectedOutput = expectedOutput;
+        if (category !== undefined) updates.category = category;
+        if (tags !== undefined) updates.tags = Array.isArray(tags) ? tags : [];
+        if (note !== undefined) updates.note = note;
+
+        await db.collection('trainingData').doc(id).update(updates);
+
+        // 5. Log to audit trail
+        await logAdminAction(decodedToken.uid, 'TRAINING_DATA_UPDATED', {
+          trainingDataId: id,
+          fieldsUpdated: Object.keys(updates),
+        });
+
+        logger.info(`Training data updated: ${id} by ${decodedToken.email}`);
+
+        res.json({
+          ok: true,
+          message: 'Training data updated successfully',
+        });
+
+      } catch (err) {
+        logger.error('adminUpdateTrainingData error:', err);
+        res.status(500).json({ error: err.message });
+      }
+    });
+  });
+
+/**
+ * adminApproveTrainingData - Approve or reject training data
+ *
+ * POST /adminApproveTrainingData
+ * Authorization: Bearer <idToken>
+ *
+ * Body: {
+ *   id: string,
+ *   approved: boolean,
+ *   reason?: string (for rejection)
+ * }
+ */
+exports.adminApproveTrainingData = functions
+  .region(REGION)
+  .https.onRequest(async (req, res) => {
+    if (req.method === 'OPTIONS') {
+      cors(req, res, () => res.sendStatus(200));
+      return;
+    }
+
+    cors(req, res, async () => {
+      try {
+        // 1. Verify auth token
+        const authHeader = req.get('Authorization') || '';
+        const token = authHeader.replace('Bearer ', '');
+
+        if (!token) {
+          return res.status(401).json({ error: 'Missing authorization token' });
+        }
+
+        const decodedToken = await verifyAuth(token);
+
+        // 2. Check admin role
+        const userDoc = await db.collection('users').doc(decodedToken.uid).get();
+        const userRole = userDoc.data()?.role || decodedToken.customClaims?.role;
+
+        if (!['admin', 'ml_admin'].includes(userRole)) {
+          return res.status(403).json({ error: 'Insufficient permissions' });
+        }
+
+        // 3. Validate input
+        const { id, approved, reason = '' } = req.body;
+
+        if (!id || approved === undefined) {
+          return res.status(400).json({ error: 'Missing required fields: id, approved' });
+        }
+
+        // 4. Update approval status
+        const updates = {
+          approved: Boolean(approved),
+          approvedAt: admin.firestore.FieldValue.serverTimestamp(),
+          approvedBy: decodedToken.uid,
+        };
+
+        if (reason) {
+          updates.approvalReason = reason;
+        }
+
+        await db.collection('trainingData').doc(id).update(updates);
+
+        // 5. Log to audit trail
+        await logAdminAction(decodedToken.uid, 'TRAINING_DATA_APPROVED', {
+          trainingDataId: id,
+          approved: Boolean(approved),
+          reason,
+        });
+
+        logger.info(`Training data ${approved ? 'approved' : 'rejected'}: ${id} by ${decodedToken.email}`);
+
+        res.json({
+          ok: true,
+          message: `Training data ${approved ? 'approved' : 'rejected'} successfully`,
+        });
+
+      } catch (err) {
+        logger.error('adminApproveTrainingData error:', err);
+        res.status(500).json({ error: err.message });
+      }
+    });
+  });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 👥 USER MANAGEMENT - Admin functions for user creation and management
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * adminCreateUser - Create new user via Firebase Authentication and Firestore
+ *
+ * POST /adminCreateUser
+ * Authorization: Bearer <idToken>
+ *
+ * Body: {
+ *   email: string,
+ *   displayName: string,
+ *   role: "user" | "admin" | "ml_admin" | "developer",
+ *   temporaryPassword?: string,
+ *   sendInviteLater?: boolean
+ * }
+ */
+exports.adminCreateUser = functions
+  .region(REGION)
+  .https.onRequest(async (req, res) => {
+    if (req.method === 'OPTIONS') {
+      cors(req, res, () => res.sendStatus(200));
+      return;
+    }
+
+    cors(req, res, async () => {
+      try {
+        // 1. Verify auth token from Authorization header
+        const authHeader = req.get('Authorization') || '';
+        const token = authHeader.replace('Bearer ', '');
+
+        if (!token) {
+          return res.status(401).json({ error: 'Missing authorization token' });
+        }
+
+        const decodedToken = await verifyAuth(token);
+        logger.info(`adminCreateUser called by ${decodedToken.email}`);
+
+        // 2. Check admin role
+        const callerDoc = await db.collection('users').doc(decodedToken.uid).get();
+        const callerRole = callerDoc.data()?.role || decodedToken.customClaims?.role;
+
+        if (!['admin'].includes(callerRole)) {
+          logger.warn(`Unauthorized adminCreateUser attempt by ${decodedToken.email} (role: ${callerRole})`);
+          return res.status(403).json({ error: 'Only admin can create users' });
+        }
+
+        // 3. Validate input
+        const { email, displayName, role, temporaryPassword, sendInviteLater } = req.body;
+
+        if (!email || !displayName || !role) {
+          return res.status(400).json({
+            error: 'Missing required fields: email, displayName, role',
+          });
+        }
+
+        if (!validateEmail(email)) {
+          return res.status(400).json({ error: 'Invalid email format' });
+        }
+
+        const validRoles = ['user', 'admin', 'ml_admin', 'developer'];
+        if (!validRoles.includes(role)) {
+          return res.status(400).json({
+            error: `Invalid role. Must be one of: ${validRoles.join(', ')}`,
+          });
+        }
+
+        // 4. Check if user already exists
+        try {
+          await admin.auth().getUserByEmail(email);
+          return res.status(409).json({ error: 'User with this email already exists' });
+        } catch (err) {
+          if (err.code !== 'auth/user-not-found') {
+            throw err;
+          }
+          // User doesn't exist, continue
+        }
+
+        // 5. Create user in Firebase Authentication
+        const password = temporaryPassword || Math.random().toString(36).slice(-12);
+
+        const userRecord = await admin.auth().createUser({
+          email,
+          displayName,
+          password,
+          emailVerified: false,
+        });
+
+        logger.info(`User created in Auth: ${userRecord.uid} (${email})`);
+
+        // 6. Set custom claims (role)
+        await admin.auth().setCustomUserClaims(userRecord.uid, { role });
+        logger.info(`Custom claims set for ${userRecord.uid}: role=${role}`);
+
+        // 7. Create document in users collection
+        await db.collection('users').doc(userRecord.uid).set({
+          uid: userRecord.uid,
+          email,
+          displayName,
+          role,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          isActive: true,
+          lastActivity: null,
+        });
+
+        logger.info(`User document created in Firestore: ${userRecord.uid}`);
+
+        // 8. Log to audit trail
+        await logAdminAction(decodedToken.uid, 'USER_CREATED', {
+          userId: userRecord.uid,
+          email,
+          role,
+          sendInviteLater: Boolean(sendInviteLater),
+        });
+
+        // 9. Return safe response (NEVER include password or token)
+        res.status(201).json({
+          ok: true,
+          userId: userRecord.uid,
+          email,
+          displayName,
+          role,
+          message: `User created successfully. ${
+            sendInviteLater
+              ? 'Send invite link manually.'
+              : `Temporary password: ${password}. User should change password on first login.`
+          }`,
+        });
+
+      } catch (err) {
+        logger.error('adminCreateUser error:', err);
+
+        // Handle specific Firebase Auth errors
+        if (err.code === 'auth/email-already-exists') {
+          return res.status(409).json({ error: 'User with this email already exists' });
+        }
+        if (err.code === 'auth/invalid-email') {
+          return res.status(400).json({ error: 'Invalid email format' });
+        }
+
+        res.status(500).json({ error: err.message || 'Internal server error' });
+      }
+    });
+  });
+
+/**
+ * adminGetAuditTrail - Retrieve audit logs with optional filters and pagination
+ *
+ * GET /adminGetAuditTrail?limit=&offset=&adminUid=&action=
+ */
+exports.adminGetAuditTrail = functions
+  .region(REGION)
+  .https.onRequest(async (req, res) => {
+    if (req.method === 'OPTIONS') {
+      cors(req, res, () => res.sendStatus(200));
+      return;
+    }
+
+    cors(req, res, async () => {
+      try {
+        // 1. Verify auth token
+        const authHeader = req.get('Authorization') || '';
+        const token = authHeader.replace('Bearer ', '');
+
+        if (!token) {
+          return res.status(401).json({ error: 'Missing authorization token' });
+        }
+
+        const decodedToken = await verifyAuth(token);
+
+        // 2. Check admin role
+        const userDoc = await db.collection('users').doc(decodedToken.uid).get();
+        const userRole = userDoc.data()?.role || decodedToken.customClaims?.role;
+
+        if (!['admin', 'ml_admin'].includes(userRole)) {
+          return res.status(403).json({ error: 'Insufficient permissions' });
+        }
+
+        // 3. Build query with filters
+        let query = db.collection('_auditLog').orderBy('timestamp', 'desc');
+
+        const { limit = 100, offset = 0, adminUid, action } = req.query;
+
+        if (adminUid && adminUid !== 'all') {
+          query = query.where('adminUid', '==', adminUid);
+        }
+
+        if (action && action !== 'all') {
+          query = query.where('action', '==', action);
+        }
+
+        // 4. Get total count and paginated data
+        const snapshot = await query.get();
+        const totalCount = snapshot.size;
+
+        const limitNum = Math.min(parseInt(limit) || 100, 500);
+        const offsetNum = parseInt(offset) || 0;
+
+        const items = snapshot.docs
+          .slice(offsetNum, offsetNum + limitNum)
+          .map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            timestamp: doc.data().timestamp?.toDate?.() || null,
+          }));
+
+        res.json({
+          ok: true,
+          items,
+          totalCount,
+          limit: limitNum,
+          offset: offsetNum,
+          hasMore: offsetNum + limitNum < totalCount,
+        });
+
+      } catch (err) {
+        logger.error('adminGetAuditTrail error:', err);
+        res.status(500).json({ error: err.message });
+      }
+    });
+  });
+
+/**
+ * adminActivateLevel2Model - Activate Level 2 (ML prediction model)
+ * Moves Level 2 from shadow mode to production
+ */
+exports.adminActivateLevel2Model = functions
+  .region(REGION)
+  .https.onRequest(async (req, res) => {
+    if (req.method === 'OPTIONS') {
+      cors(req, res, () => res.sendStatus(200));
+      return;
+    }
+
+    cors(req, res, async () => {
+      try {
+        // 1. Verify auth token
+        const authHeader = req.get('Authorization') || '';
+        const token = authHeader.replace('Bearer ', '');
+
+        if (!token) {
+          return res.status(401).json({ error: 'Missing authorization token' });
+        }
+
+        const decodedToken = await verifyAuth(token);
+
+        // 2. Check admin role
+        const userDoc = await db.collection('users').doc(decodedToken.uid).get();
+        const userRole = userDoc.data()?.role || decodedToken.customClaims?.role;
+
+        if (!['admin', 'ml_admin'].includes(userRole)) {
+          return res.status(403).json({ error: 'Insufficient permissions' });
+        }
+
+        // 3. Update ML metrics to activate Level 2
+        const metricsRef = db.collection('mlMetrics').doc('default');
+        const metricsDoc = await metricsRef.get();
+        const currentMetrics = metricsDoc.data() || {};
+
+        await metricsRef.set({
+          ...currentMetrics,
+          level2Status: 'active',
+          lastActivatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          activatedBy: decodedToken.uid,
+        }, { merge: true });
+
+        // 4. Log to audit trail
+        await logAdminAction(decodedToken.uid, 'LEVEL2_ACTIVATED', {
+          previousStatus: currentMetrics.level2Status || 'unknown',
+          newStatus: 'active',
+          timestamp: Date.now(),
+        });
+
+        logger.info(`Level 2 activated by ${decodedToken.email}`);
+
+        // 5. Return response
+        res.status(200).json({
+          ok: true,
+          message: 'Level 2 model activated successfully',
+        });
+
+      } catch (err) {
+        logger.error('adminActivateLevel2Model error:', err);
+        res.status(500).json({ error: err.message });
+      }
+    });
+  });
+
+/**
+ * adminRollbackToLevel1 - Rollback to Level 1 (baseline model)
+ * Reverts Level 2 from active back to shadow or disabled state
+ */
+exports.adminRollbackToLevel1 = functions
+  .region(REGION)
+  .https.onRequest(async (req, res) => {
+    if (req.method === 'OPTIONS') {
+      cors(req, res, () => res.sendStatus(200));
+      return;
+    }
+
+    cors(req, res, async () => {
+      try {
+        // 1. Verify auth token
+        const authHeader = req.get('Authorization') || '';
+        const token = authHeader.replace('Bearer ', '');
+
+        if (!token) {
+          return res.status(401).json({ error: 'Missing authorization token' });
+        }
+
+        const decodedToken = await verifyAuth(token);
+
+        // 2. Check admin role
+        const userDoc = await db.collection('users').doc(decodedToken.uid).get();
+        const userRole = userDoc.data()?.role || decodedToken.customClaims?.role;
+
+        if (!['admin', 'ml_admin'].includes(userRole)) {
+          return res.status(403).json({ error: 'Insufficient permissions' });
+        }
+
+        // 3. Update ML metrics to rollback Level 2
+        const metricsRef = db.collection('mlMetrics').doc('default');
+        const metricsDoc = await metricsRef.get();
+        const currentMetrics = metricsDoc.data() || {};
+        const reason = req.body?.reason || 'manual_rollback';
+
+        await metricsRef.set({
+          ...currentMetrics,
+          level2Status: 'shadow',
+          lastRolledbackAt: admin.firestore.FieldValue.serverTimestamp(),
+          rolledbackBy: decodedToken.uid,
+          rollbackReason: reason,
+        }, { merge: true });
+
+        // 4. Log to audit trail
+        await logAdminAction(decodedToken.uid, 'LEVEL2_ROLLED_BACK', {
+          previousStatus: currentMetrics.level2Status || 'unknown',
+          newStatus: 'shadow',
+          reason,
+          timestamp: Date.now(),
+        });
+
+        logger.info(`Level 2 rolled back to shadow by ${decodedToken.email} (reason: ${reason})`);
+
+        // 5. Return response
+        res.status(200).json({
+          ok: true,
+          message: 'Rolled back to Level 1 successfully',
+        });
+
+      } catch (err) {
+        logger.error('adminRollbackToLevel1 error:', err);
+        res.status(500).json({ error: err.message });
+      }
+    });
+  });
+
