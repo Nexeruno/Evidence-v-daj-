@@ -3704,7 +3704,7 @@ exports.runLevel2ShadowPipeline = functions.region(REGION).https.onRequest(async
 
     // Finalize
     const finishTime = admin.firestore.Timestamp.now();
-    const durationMs = (finishTime.toMillis() - startTime.toMillis());
+    const durationMs = Date.now() - startTime;
 
     // Determine final status
     let finalStatus;
@@ -3763,7 +3763,7 @@ exports.runLevel2ShadowPipeline = functions.region(REGION).https.onRequest(async
         : 1.0,
       notes: 'Simplified shadow baseline for validating L2 shadow flow. Uses Level 1 predictions + small variation. Applies weighted calibration from manual (weight=2) and auto (weight=1) L2 training feedback if available. NOT Python ML pipeline. NOT actual RandomForest model. For production ML: integrate ml-pipeline/ and trainingData collections.',
       // Timestamps & stats
-      startedAt: startTime,
+      startedAt: admin.firestore.Timestamp.fromMillis(startTime),
       finishedAt: finishTime,
       durationMs: durationMs,
       usersTotal: userIds.length,
