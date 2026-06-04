@@ -96,6 +96,90 @@ const checkAIRateLimit = async (uid, action, maxPerHour = 100) => {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// 📊 ML PIPELINE STAGE TRACKING & LOGGING
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const updatePipelineStage = async (runId, stage, progress = null, error = null) => {
+  try {
+    const update = {
+      stage,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+    if (progress) update.progress = progress;
+    if (error) update.lastError = error;
+
+    await db.collection('mlPipelineStatus').doc('l2Shadow').update(update);
+  } catch (err) {
+    logger.warn('[ML_STAGE_TRACK] Failed to update stage:', err.message);
+  }
+};
+
+const logMlDebug = async (logEntry) => {
+  try {
+    const { runId, level = 'info', source, stage, message, userId, details } = logEntry;
+
+    const doc = {
+      runId,
+      level,
+      source,
+      stage,
+      message,
+      userId: userId || null,
+      details: details || {},
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    await db.collection('mlDebugLogs').add(doc);
+  } catch (err) {
+    logger.warn('[ML_DEBUG_LOG] Failed to write log:', err.message);
+  }
+};
+
+const initPipelineRun = async (triggeredBy) => {
+  try {
+    const runId = `l2-${Date.now()}`;
+    const statusDoc = {
+      runId,
+      status: 'running',
+      stage: 'initializing',
+      startedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      finishedAt: null,
+      triggeredBy,
+      progress: {
+        usersTotal: 0,
+        usersProcessed: 0,
+        predictionsCreated: 0,
+        errors: 0,
+      },
+      lastError: null,
+    };
+
+    await db.collection('mlPipelineStatus').doc('l2Shadow').set(statusDoc);
+    return runId;
+  } catch (err) {
+    logger.error('[ML_INIT_RUN] Failed to init pipeline:', err.message);
+    throw err;
+  }
+};
+
+const finalizePipelineRun = async (status, duration, summary = {}) => {
+  try {
+    const update = {
+      status,
+      stage: 'completed',
+      finishedAt: admin.firestore.FieldValue.serverTimestamp(),
+      durationMs: duration,
+      ...summary,
+    };
+
+    await db.collection('mlPipelineStatus').doc('l2Shadow').update(update);
+  } catch (err) {
+    logger.warn('[ML_FINALIZE_RUN] Failed to finalize:', err.message);
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // 🔐 IP WHITELISTING - Optional admin security layer
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -2954,7 +3038,7 @@ exports.adminRollbackToLevel1 = functions
 // PREDICTION SETTINGS - Source of truth for ML model state (Level 1 vs Level 2)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-exports.adminGetPredictionSettings = functions.https.onRequest(async (req, res) => {
+exports.adminGetPredictionSettings = functions.region(REGION).https.onRequest(async (req, res) => {
   try {
     const auth = req.header('authorization')?.replace('Bearer ', '');
     if (!auth) return res.status(401).json({ error: 'Unauthorized' });
@@ -2992,7 +3076,7 @@ exports.adminGetPredictionSettings = functions.https.onRequest(async (req, res) 
   }
 });
 
-exports.adminUpdatePredictionSettings = functions.https.onRequest(async (req, res) => {
+exports.adminUpdatePredictionSettings = functions.region(REGION).https.onRequest(async (req, res) => {
   try {
     const auth = req.header('authorization')?.replace('Bearer ', '');
     if (!auth) return res.status(401).json({ error: 'Unauthorized' });
@@ -3012,15 +3096,17 @@ exports.adminUpdatePredictionSettings = functions.https.onRequest(async (req, re
       return res.status(400).json({ error: 'Invalid activePredictionLevel' });
     }
 
-    // Update settings
-    await db.collection('appConfig').doc('predictionSettings').update({
+    // Update settings — set+merge so it works even if doc doesn't exist yet
+    const settingsData = {
       activePredictionLevel,
       level2Enabled: level2Enabled ?? false,
       level2ShadowMode: level2ShadowMode ?? false,
       fallbackEnabled: fallbackEnabled ?? true,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedBy: decodedToken.uid,
-    });
+    };
+
+    await db.collection('appConfig').doc('predictionSettings').set(settingsData, { merge: true });
 
     // Log to audit trail
     await db.collection('_auditLog').add({
@@ -3032,7 +3118,9 @@ exports.adminUpdatePredictionSettings = functions.https.onRequest(async (req, re
       ip: req.ip,
     });
 
-    res.status(200).json({ ok: true, message: 'Prediction settings updated' });
+    // Return updated settings
+    const updatedDoc = await db.collection('appConfig').doc('predictionSettings').get();
+    res.status(200).json({ ok: true, data: updatedDoc.data() });
   } catch (err) {
     logger.error('adminUpdatePredictionSettings error:', err);
     res.status(500).json({ error: err.message });
@@ -3043,7 +3131,7 @@ exports.adminUpdatePredictionSettings = functions.https.onRequest(async (req, re
 // ML RUNS - Get all ML pipeline runs for admin dashboard
 // ═══════════════════════════════════════════════════════════════════════════════
 
-exports.adminGetMlRuns = functions.https.onRequest(async (req, res) => {
+exports.adminGetMlRuns = functions.region(REGION).https.onRequest(async (req, res) => {
   try {
     const auth = req.header('authorization')?.replace('Bearer ', '');
     if (!auth) return res.status(401).json({ error: 'Unauthorized' });
@@ -3075,7 +3163,7 @@ exports.adminGetMlRuns = functions.https.onRequest(async (req, res) => {
 // ML PREDICTIONS - Get predictions for all users or specific user
 // ═══════════════════════════════════════════════════════════════════════════════
 
-exports.adminGetMlPredictions = functions.https.onRequest(async (req, res) => {
+exports.adminGetMlPredictions = functions.region(REGION).https.onRequest(async (req, res) => {
   try {
     const auth = req.header('authorization')?.replace('Bearer ', '');
     if (!auth) return res.status(401).json({ error: 'Unauthorized' });
@@ -3107,6 +3195,860 @@ exports.adminGetMlPredictions = functions.https.onRequest(async (req, res) => {
   } catch (err) {
     logger.error('adminGetMlPredictions error:', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// USER MANAGEMENT - Admin Functions (AURIX Core)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const VALID_ROLES = ['viewer', 'analyst', 'admin', 'ml_admin', 'developer'];
+
+const verifyAdminRole = async (authHeader) => {
+  const token = (authHeader || '').replace('Bearer ', '');
+  if (!token) throw Object.assign(new Error('Missing authorization token'), { status: 401 });
+  const decoded = await admin.auth().verifyIdToken(token);
+  const userDoc = await db.collection('users').doc(decoded.uid).get();
+  const role = userDoc.data()?.role;
+  if (role !== 'admin') throw Object.assign(new Error('Forbidden: admin role required'), { status: 403 });
+  return { decoded, role };
+};
+
+const getAdminCount = async () => {
+  const snap = await db.collection('users').where('role', '==', 'admin').get();
+  return snap.size;
+};
+
+// ── adminUpdateUserRole ──────────────────────────────────────────────────────
+exports.adminUpdateUserRole = functions.region(REGION).https.onRequest(async (req, res) => {
+  cors(req, res, async () => {
+    try {
+      const { decoded } = await verifyAdminRole(req.get('Authorization'));
+      const userId = req.body.userId || req.body.targetUid;
+      const { newRole } = req.body;
+
+      if (!userId || !newRole) return res.status(400).json({ error: 'userId and newRole are required' });
+      if (!VALID_ROLES.includes(newRole)) return res.status(400).json({ error: 'Invalid role. Allowed: ' + VALID_ROLES.join(', ') });
+      if (userId === decoded.uid) return res.status(400).json({ error: 'Cannot change your own role' });
+
+      const targetDoc = await db.collection('users').doc(userId).get();
+      if (!targetDoc.exists) return res.status(404).json({ error: 'User not found' });
+
+      const previousRole = targetDoc.data()?.role;
+      if (previousRole === 'admin' && newRole !== 'admin') {
+        const count = await getAdminCount();
+        if (count <= 1) return res.status(400).json({ error: 'Cannot remove the last admin' });
+      }
+
+      await db.collection('users').doc(userId).update({
+        role: newRole,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      await admin.auth().setCustomUserClaims(userId, { role: newRole });
+      await logAdminAction(decoded.uid, 'USER_ROLE_UPDATED', { userId, previousRole, newRole });
+
+      res.status(200).json({ ok: true, userId, previousRole, newRole });
+    } catch (err) {
+      logger.error('adminUpdateUserRole error:', err);
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+});
+
+// ── adminBlockUser ───────────────────────────────────────────────────────────
+exports.adminBlockUser = functions.region(REGION).https.onRequest(async (req, res) => {
+  cors(req, res, async () => {
+    try {
+      const { decoded } = await verifyAdminRole(req.get('Authorization'));
+      const userId = req.body.userId || req.body.targetUid;
+
+      if (!userId) return res.status(400).json({ error: 'userId is required' });
+      if (userId === decoded.uid) return res.status(400).json({ error: 'Cannot block yourself' });
+
+      const targetDoc = await db.collection('users').doc(userId).get();
+      if (!targetDoc.exists) return res.status(404).json({ error: 'User not found' });
+      if (targetDoc.data()?.role === 'admin') {
+        const count = await getAdminCount();
+        if (count <= 1) return res.status(400).json({ error: 'Cannot block the last admin' });
+      }
+
+      await admin.auth().updateUser(userId, { disabled: true });
+      await db.collection('users').doc(userId).update({
+        isActive: false,
+        blocked: true,
+        disabled: true,
+        status: 'blocked',
+        blockedAt: admin.firestore.FieldValue.serverTimestamp(),
+        blockedBy: decoded.uid,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      await logAdminAction(decoded.uid, 'USER_BLOCKED', { userId });
+
+      res.status(200).json({ ok: true, userId, updatedFields: { isActive: false, blocked: true, disabled: true, status: 'blocked' } });
+    } catch (err) {
+      logger.error('adminBlockUser error:', err);
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+});
+
+// ── adminUnblockUser ─────────────────────────────────────────────────────────
+exports.adminUnblockUser = functions.region(REGION).https.onRequest(async (req, res) => {
+  cors(req, res, async () => {
+    try {
+      const { decoded } = await verifyAdminRole(req.get('Authorization'));
+      const userId = req.body.userId || req.body.targetUid;
+
+      if (!userId) return res.status(400).json({ error: 'userId is required' });
+
+      const targetDoc = await db.collection('users').doc(userId).get();
+      if (!targetDoc.exists) return res.status(404).json({ error: 'User not found' });
+
+      await admin.auth().updateUser(userId, { disabled: false });
+      await db.collection('users').doc(userId).update({
+        isActive: true,
+        blocked: false,
+        disabled: false,
+        status: 'active',
+        unblockedAt: admin.firestore.FieldValue.serverTimestamp(),
+        unblockedBy: decoded.uid,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      await logAdminAction(decoded.uid, 'USER_UNBLOCKED', { userId });
+
+      res.status(200).json({ ok: true, userId, updatedFields: { isActive: true, blocked: false, disabled: false, status: 'active' } });
+    } catch (err) {
+      logger.error('adminUnblockUser error:', err);
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+});
+
+// ── adminDeleteUser ──────────────────────────────────────────────────────────
+exports.adminDeleteUser = functions.region(REGION).https.onRequest(async (req, res) => {
+  cors(req, res, async () => {
+    try {
+      const { decoded } = await verifyAdminRole(req.get('Authorization'));
+      const userId = req.body.userId || req.body.targetUid;
+
+      if (!userId) return res.status(400).json({ error: 'userId is required' });
+      if (userId === decoded.uid) return res.status(400).json({ error: 'Cannot delete yourself' });
+
+      const targetDoc = await db.collection('users').doc(userId).get();
+      if (!targetDoc.exists) return res.status(404).json({ error: 'User not found' });
+      if (targetDoc.data()?.role === 'admin') {
+        const count = await getAdminCount();
+        if (count <= 1) return res.status(400).json({ error: 'Cannot delete the last admin' });
+      }
+
+      // Soft delete: mark deleted, disable Auth account
+      await db.collection('users').doc(userId).update({
+        deleted: true,
+        isActive: false,
+        blocked: true,
+        deletedAt: admin.firestore.FieldValue.serverTimestamp(),
+        deletedBy: decoded.uid,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      await admin.auth().updateUser(userId, { disabled: true });
+      await logAdminAction(decoded.uid, 'USER_DELETED', { userId, email: targetDoc.data()?.email });
+
+      res.status(200).json({ ok: true, userId });
+    } catch (err) {
+      logger.error('adminDeleteUser error:', err);
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+});
+
+// ── adminResetUserPassword ───────────────────────────────────────────────────
+exports.adminResetUserPassword = functions.region(REGION).https.onRequest(async (req, res) => {
+  cors(req, res, async () => {
+    try {
+      const { decoded } = await verifyAdminRole(req.get('Authorization'));
+      const userId = req.body.userId || req.body.targetUid;
+
+      if (!userId) return res.status(400).json({ error: 'userId is required' });
+
+      const targetDoc = await db.collection('users').doc(userId).get();
+      if (!targetDoc.exists) return res.status(404).json({ error: 'User not found' });
+
+      const email = targetDoc.data()?.email;
+      if (!email) return res.status(400).json({ error: 'User has no email address' });
+
+      // Check provider
+      const authUser = await admin.auth().getUser(userId);
+      const isPasswordProvider = authUser.providerData.some(function(p) { return p.providerId === 'password'; });
+      if (!isPasswordProvider) {
+        return res.status(200).json({
+          ok: false,
+          notApplicable: true,
+          message: 'This user signs in with Google. Password is managed by Google account.',
+        });
+      }
+
+      const resetLink = await admin.auth().generatePasswordResetLink(email);
+      await sendEmail(email, 'Reset hesla — Evidence Výdajů', EMAIL_HTML(resetLink));
+      await logAdminAction(decoded.uid, 'USER_PASSWORD_RESET', { userId, email });
+
+      res.status(200).json({ ok: true, message: 'Password reset email sent to ' + email });
+    } catch (err) {
+      logger.error('adminResetUserPassword error:', err);
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LEVEL 2 SHADOW PIPELINE - Run shadow mode predictions
+// ═══════════════════════════════════════════════════════════════════════════════
+
+exports.runLevel2ShadowPipeline = functions.region(REGION).https.onRequest(async (req, res) => {
+  let runId = null;
+  const startTime = Date.now();
+
+  try {
+    const auth = req.header('authorization')?.replace('Bearer ', '');
+    if (!auth) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+
+    const decodedToken = await admin.auth().verifyIdToken(auth);
+    const userDoc = await db.collection('users').doc(decodedToken.uid).get();
+    const userRole = userDoc.data()?.role;
+
+    if (!['admin', 'ml_admin'].includes(userRole)) {
+      return res.status(403).json({ ok: false, error: 'Forbidden: only ml_admin can run pipeline' });
+    }
+
+    // Init pipeline run
+    runId = await initPipelineRun(decodedToken.uid);
+    logger.info(`[L2_SHADOW] Pipeline started with runId: ${runId}`);
+
+    // Verify shadow mode is enabled
+    await updatePipelineStage(runId, 'checking_settings');
+    const settingsDoc = await db.collection('appConfig').doc('predictionSettings').get();
+    const settings = settingsDoc.data();
+
+    if (!settings?.level2ShadowMode || !settings?.level2Enabled) {
+      await logMlDebug({
+        runId,
+        level: 'error',
+        source: 'l2_shadow_pipeline',
+        stage: 'checking_settings',
+        message: 'L2 Shadow Mode or Level 2 not enabled',
+        details: { settings },
+      });
+      await finalizePipelineRun('failed', Date.now() - startTime);
+      return res.status(400).json({ ok: false, error: 'Level 2 Shadow Mode is not enabled' });
+    }
+
+    const startTimeTs = admin.firestore.Timestamp.now();
+    let usersProcessed = 0;
+    let usersSkipped = 0;
+    let predictionsCreated = 0;
+    let fallbackUsed = 0;
+    let trainingDataUsedCount = 0;
+    let manualFeedbackUsedCount = 0;
+    let autoFeedbackUsedCount = 0;
+    let usersWithTrainingData = 0;
+    let sumFinalCorrectionFactors = 0;
+    const errors = [];
+
+    // Get all users
+    await updatePipelineStage(runId, 'loading_users');
+    const usersRef = db.collection('users');
+    const usersSnapshot = await usersRef.get();
+    const userIds = usersSnapshot.docs.map(doc => doc.id);
+
+    logger.info(`[L2_SHADOW] Starting shadow pipeline for ${userIds.length} users`);
+
+    // Process each user
+    for (const uid of userIds) {
+      try {
+        // Get user's latest Level 1 prediction
+        const level1PredQuery = await db.collection('users').doc(uid)
+          .collection('mlPredictions')
+          .where('pipelineLevel', '==', 1)
+          .where('active', '==', true)
+          .orderBy('createdAt', 'desc')
+          .limit(1)
+          .get();
+
+        const level1Pred = level1PredQuery.empty ? null : level1PredQuery.docs[0].data();
+
+        // Get user's recent transactions (last 12 months)
+        const twelveMonthsAgo = new Date();
+        twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
+        const dateStr = twelveMonthsAgo.toISOString().split('T')[0];
+
+        const vydajeSnap = await db.collection('users').doc(uid)
+          .collection('vydaje')
+          .where('datum', '>=', dateStr)
+          .get();
+
+        const prijmySnap = await db.collection('users').doc(uid)
+          .collection('prijmy')
+          .where('datum', '>=', dateStr)
+          .get();
+
+        const transactions = [
+          ...vydajeSnap.docs.map(doc => ({ ...doc.data(), type: 'vydaj' })),
+          ...prijmySnap.docs.map(doc => ({ ...doc.data(), type: 'prijem' })),
+        ];
+
+        // Load approved L2 training feedback (manual + auto) for this user
+        const manualTrainingQuery = await db.collection('trainingData')
+          .where('userId', '==', uid)
+          .where('type', '==', 'l2_manual_feedback')
+          .where('status', '==', 'approved')
+          .get();
+
+        const autoTrainingQuery = await db.collection('trainingData')
+          .where('userId', '==', uid)
+          .where('type', '==', 'l2_auto_feedback')
+          .where('status', '==', 'approved')
+          .get();
+
+        const manualRecords = manualTrainingQuery.docs.map(doc => doc.data());
+        const autoRecords = autoTrainingQuery.docs.map(doc => doc.data());
+
+        // Calculate weighted correction factors
+        // manual feedback: weight = 2, auto feedback: weight = 1
+        let manualCorrectionFactor = 1.0;
+        let autoCorrectionFactor = 1.0;
+        let finalCorrectionFactor = 1.0;
+        let trainingDataUsed = false;
+
+        if (manualRecords.length > 0) {
+          const manualRatios = manualRecords
+            .filter(td => td.predictedTotal && td.predictedTotal > 0)
+            .map(td => td.actualTotal / td.predictedTotal);
+
+          if (manualRatios.length > 0) {
+            manualCorrectionFactor = manualRatios.reduce((a, b) => a + b, 0) / manualRatios.length;
+            manualCorrectionFactor = Math.max(0.7, Math.min(1.3, manualCorrectionFactor));
+            trainingDataUsed = true;
+          }
+        }
+
+        if (autoRecords.length > 0) {
+          const autoRatios = autoRecords
+            .filter(td => td.predictedTotal && td.predictedTotal > 0)
+            .map(td => td.actualTotal / td.predictedTotal);
+
+          if (autoRatios.length > 0) {
+            autoCorrectionFactor = autoRatios.reduce((a, b) => a + b, 0) / autoRatios.length;
+            autoCorrectionFactor = Math.max(0.7, Math.min(1.3, autoCorrectionFactor));
+            trainingDataUsed = true;
+          }
+        }
+
+        // Weighted average: manual weight = 2, auto weight = 1
+        if (trainingDataUsed) {
+          const totalWeight = (manualRecords.length > 0 ? 2 : 0) + (autoRecords.length > 0 ? 1 : 0);
+          finalCorrectionFactor =
+            ((manualRecords.length > 0 ? manualCorrectionFactor * 2 : 0) +
+             (autoRecords.length > 0 ? autoCorrectionFactor * 1 : 0)) / totalWeight;
+          finalCorrectionFactor = Math.max(0.7, Math.min(1.3, finalCorrectionFactor));
+        }
+
+        // ⚠️ IMPORTANT: SIMPLIFIED SHADOW BASELINE - NOT ACTUAL ML MODEL
+        // This implementation:
+        // - Uses Level 1 prediction + small variation (95-105%) + weighted correction from feedback
+        // - Does NOT use Python ml-pipeline/ (no true ML training)
+        // - DOES use manual L2 training feedback (type: "l2_manual_feedback") if available
+        // - DOES use auto L2 training feedback (type: "l2_auto_feedback") if available
+        // - Manual feedback has higher weight (2) than auto feedback (1)
+        // - Does use last 12 months of vydaje + prijmy
+        // For real L2 ML model, would need:
+        //   - Call ml-pipeline/src/main.py with RandomForest training
+        //   - Integrate trainingData collections for labeled examples
+        //   - Implement actual feature engineering and model evaluation
+        let shadowPrediction = null;
+
+        if (transactions.length >= 10 && level1Pred) {
+          // SIMPLIFIED: Create shadow prediction close to Level 1 (with small variation for testing)
+          let variation = 0.95 + Math.random() * 0.1; // 95-105% of Level 1
+          // Apply weighted correction factor if available
+          if (trainingDataUsed) {
+            variation *= finalCorrectionFactor;
+          }
+          shadowPrediction = {
+            // Core prediction data
+            month: new Date().toISOString().split('T')[0].substring(0, 7),
+            totalPredictedExpense: Math.round((level1Pred.totalPredictedExpense || 0) * variation),
+            categories: level1Pred.categories || {},
+            confidence: 'medium',
+            confidenceScore: 70,
+            // Pipeline level & mode
+            pipelineLevel: 2,
+            shadowMode: true,
+            active: false,
+            // Model metadata - EXPLICITLY SIMPLIFIED + AUTO-CALIBRATED + MANUAL-CALIBRATED
+            modelType: 'shadow-baseline',
+            modelVersion: 'l2-shadow-baseline-v1',
+            isRealMlModel: false,
+            dataSourcesUsed: trainingDataUsed
+              ? ['users/{uid}/vydaje', 'users/{uid}/prijmy', 'level1Prediction', 'trainingData']
+              : ['users/{uid}/vydaje', 'users/{uid}/prijmy', 'level1Prediction'],
+            trainingDataUsed: trainingDataUsed,
+            trainingDataCount: manualRecords.length + autoRecords.length,
+            manualFeedbackCount: manualRecords.length,
+            autoFeedbackCount: autoRecords.length,
+            manualCorrectionFactor: manualRecords.length > 0 ? Math.round(manualCorrectionFactor * 100) / 100 : 1.0,
+            autoCorrectionFactor: autoRecords.length > 0 ? Math.round(autoCorrectionFactor * 100) / 100 : 1.0,
+            finalCorrectionFactor: trainingDataUsed ? Math.round(finalCorrectionFactor * 100) / 100 : 1.0,
+            incomeDataUsed: true,
+            // Metrics
+            fallbackUsed: false,
+            metrics: {
+              mae: 0,
+              mape: 0,
+              training_rows: transactions.length,
+              test_rows: 0,
+            },
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          };
+        } else {
+          // Fallback: use Level 1 as-is when insufficient data
+          shadowPrediction = {
+            // Core prediction data
+            month: new Date().toISOString().split('T')[0].substring(0, 7),
+            totalPredictedExpense: level1Pred?.totalPredictedExpense || 0,
+            categories: level1Pred?.categories || {},
+            confidence: 'low',
+            confidenceScore: 50,
+            // Pipeline level & mode
+            pipelineLevel: 2,
+            shadowMode: true,
+            active: false,
+            // Model metadata - EXPLICITLY SIMPLIFIED + FALLBACK
+            modelType: 'shadow-baseline-fallback',
+            modelVersion: 'l2-shadow-baseline-fallback-v1',
+            isRealMlModel: false,
+            dataSourcesUsed: ['level1Prediction'],
+            trainingDataUsed: false,
+            trainingDataCount: 0,
+            incomeDataUsed: false,
+            // Metrics
+            fallbackUsed: true,
+            fallbackReason: transactions.length < 10 ? 'insufficient_data' : 'no_level1_prediction',
+            metrics: {
+              mae: 0,
+              mape: 0,
+              training_rows: transactions.length,
+              test_rows: 0,
+            },
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          };
+          fallbackUsed++;
+        }
+
+        // Save shadow prediction
+        await db.collection('users').doc(uid)
+          .collection('mlPredictions')
+          .add(shadowPrediction);
+
+        // Track training data usage
+        if (trainingDataUsed) {
+          trainingDataUsedCount += manualRecords.length + autoRecords.length;
+          manualFeedbackUsedCount += manualRecords.length;
+          autoFeedbackUsedCount += autoRecords.length;
+          usersWithTrainingData++;
+          sumFinalCorrectionFactors += finalCorrectionFactor;
+        }
+
+        predictionsCreated++;
+        usersProcessed++;
+
+      } catch (userError) {
+        logger.error(`[L2_SHADOW] Error processing user ${uid}:`, userError);
+        errors.push({ uid, error: userError.message });
+        usersProcessed++;
+      }
+    }
+
+    // Save ML run record
+    const finishTime = admin.firestore.Timestamp.now();
+    const durationMs = (finishTime.toMillis() - startTime.toMillis());
+
+    const runRecord = {
+      status: errors.length === 0 ? 'success' : 'success_with_errors',
+      pipelineLevel: 2,
+      mode: 'shadow',
+      // ⚠️ EXPLICIT METADATA: SIMPLIFIED SHADOW BASELINE - NOT ACTUAL ML MODEL
+      modelType: 'shadow-baseline',
+      modelVersion: 'l2-shadow-baseline-v1',
+      isRealMlModel: false,
+      implementation: 'simplified-baseline-with-manual-calibration',
+      dataSourcesUsed: ['users/{uid}/vydaje', 'users/{uid}/prijmy', 'level1Prediction', 'trainingData'],
+      trainingDataUsed: usersWithTrainingData > 0,
+      incomeDataUsed: true,
+      // Training data stats (manual + auto with weights: manual=2, auto=1)
+      trainingDataRecordsUsed: trainingDataUsedCount,
+      manualFeedbackRecordsUsed: manualFeedbackUsedCount,
+      autoFeedbackRecordsUsed: autoFeedbackUsedCount,
+      usersWithTrainingData: usersWithTrainingData,
+      averageFinalCorrectionFactor: usersWithTrainingData > 0
+        ? Math.round((sumFinalCorrectionFactors / usersWithTrainingData) * 100) / 100
+        : 1.0,
+      notes: 'Simplified shadow baseline for validating L2 shadow flow. Uses Level 1 predictions + small variation. Applies weighted calibration from manual (weight=2) and auto (weight=1) L2 training feedback if available. NOT Python ML pipeline. NOT actual RandomForest model. For production ML: integrate ml-pipeline/ and trainingData collections.',
+      // Timestamps & stats
+      startedAt: startTime,
+      finishedAt: finishTime,
+      durationMs: durationMs,
+      usersProcessed: usersProcessed,
+      predictionsCreated: predictionsCreated,
+      fallbackUsed: fallbackUsed > 0,
+      fallbackCount: fallbackUsed,
+      errorCount: errors.length,
+      errors: errors.slice(0, 10), // Keep first 10 errors only
+      triggeredBy: decodedToken.uid,
+      triggeredAt: new Date().toISOString(),
+    };
+
+    await db.collection('mlRuns').add(runRecord);
+
+    logger.info(`[L2_SHADOW] Pipeline completed: ${predictionsCreated}/${usersProcessed} predictions (simplified baseline)`);
+
+    res.status(200).json({
+      ok: true,
+      message: 'Shadow pipeline completed',
+      note: 'SIMPLIFIED BASELINE - Not actual ML model. Uses Level 1 variation for testing.',
+      summary: {
+        usersProcessed,
+        predictionsCreated,
+        fallbackUsed,
+        errorCount: errors.length,
+        durationMs,
+        // Explicit metadata about what was used
+        modelType: 'shadow-baseline',
+        isRealMlModel: false,
+        usedDataSources: {
+          vydaje: true,
+          prijmy: true,
+          trainingData: false,
+          mlTrainingData: false,
+          level1Prediction: true,
+          pythonPipeline: false,
+        },
+        months: 12,
+        documentation: 'For real L2 ML: integrate ml-pipeline/ with trainingData/RandomForest training',
+      },
+    });
+
+  } catch (err) {
+    logger.error('runLevel2ShadowPipeline error:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// L2 TRAINING FEEDBACK - Create manual feedback for L2 shadow predictions
+// ═══════════════════════════════════════════════════════════════════════════════
+
+exports.adminCreateL2TrainingFeedback = functions.region(REGION).https.onRequest(async (req, res) => {
+  try {
+    const auth = req.header('authorization')?.replace('Bearer ', '');
+    if (!auth) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+
+    const decodedToken = await admin.auth().verifyIdToken(auth);
+    const userDoc = await db.collection('users').doc(decodedToken.uid).get();
+    const userRole = userDoc.data()?.role;
+
+    if (!['admin', 'ml_admin'].includes(userRole)) {
+      return res.status(403).json({ ok: false, error: 'Forbidden: only admin/ml_admin can create L2 training feedback' });
+    }
+
+    // Extract and validate input
+    const { userId, predictionId, month, predictedTotal, actualTotal, correctedCategories, note } = req.body;
+
+    if (!userId || !month || !predictedTotal || !actualTotal) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Missing required fields: userId, month, predictedTotal, actualTotal',
+      });
+    }
+
+    const errorAmount = actualTotal - predictedTotal;
+    const errorPercent = predictedTotal !== 0 ? ((actualTotal - predictedTotal) / predictedTotal) * 100 : 0;
+
+    // Create training data record
+    const trainingRecord = {
+      // L2 feedback specific
+      type: 'l2_manual_feedback',
+      userId,
+      predictionId: predictionId || null,
+      month,
+      predictedTotal: Math.round(predictedTotal),
+      actualTotal: Math.round(actualTotal),
+      errorAmount: Math.round(errorAmount),
+      errorPercent: Math.round(errorPercent * 10) / 10,
+      correctedCategories: correctedCategories || {},
+      note: note || '',
+      // Metadata
+      source: 'manual_admin_feedback',
+      status: 'approved', // Auto-approved by admin
+      createdBy: decodedToken.uid,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      usedForTraining: false,
+    };
+
+    // Save to trainingData collection
+    const docRef = await db.collection('trainingData').add(trainingRecord);
+
+    // Log audit trail
+    await logAdminAction(decodedToken.uid, 'L2_TRAINING_FEEDBACK_CREATED', {
+      trainingDataId: docRef.id,
+      userId,
+      month,
+      errorPercent,
+    });
+
+    logger.info(`[L2_FEEDBACK] Created training feedback ${docRef.id} for user ${userId}`);
+
+    res.status(201).json({
+      ok: true,
+      id: docRef.id,
+      message: 'L2 training feedback created successfully',
+      data: { errorAmount, errorPercent },
+    });
+
+  } catch (err) {
+    logger.error('adminCreateL2TrainingFeedback error:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// AUTO LEARNING - Generate auto feedback from actual monthly expenses
+// ═══════════════════════════════════════════════════════════════════════════════
+
+exports.adminGenerateL2AutoFeedback = functions.region(REGION).https.onRequest(async (req, res) => {
+  try {
+    const auth = req.header('authorization')?.replace('Bearer ', '');
+    if (!auth) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+
+    const decodedToken = await admin.auth().verifyIdToken(auth);
+    const userDoc = await db.collection('users').doc(decodedToken.uid).get();
+    const userRole = userDoc.data()?.role;
+
+    if (!['admin', 'ml_admin'].includes(userRole)) {
+      return res.status(403).json({ ok: false, error: 'Forbidden: only admin/ml_admin can generate auto feedback' });
+    }
+
+    // Extract month from request (YYYY-MM format)
+    const { month } = req.body;
+    if (!month || !month.match(/^\d{4}-\d{2}$/)) {
+      return res.status(400).json({ ok: false, error: 'Missing or invalid month (use YYYY-MM format)' });
+    }
+
+    logger.info(`[L2_AUTO_FEEDBACK] Generating auto feedback for month ${month}`);
+
+    let feedbackCreated = 0;
+    let feedbackSkipped = 0;
+    const errors = [];
+
+    // Get all L2 shadow predictions for this month
+    const l2PredictionsSnap = await db.collectionGroup('mlPredictions')
+      .where('pipelineLevel', '==', 2)
+      .where('shadowMode', '==', true)
+      .where('month', '==', month)
+      .get();
+
+    logger.info(`[L2_AUTO_FEEDBACK] Found ${l2PredictionsSnap.size} L2 shadow predictions for ${month}`);
+
+    // Process each L2 prediction
+    for (const predDoc of l2PredictionsSnap.docs) {
+      try {
+        const prediction = predDoc.data();
+        const userId = predDoc.ref.parent.parent.id; // users/{uid}/mlPredictions
+        const predictionId = predDoc.id;
+
+        // Check if auto feedback already exists for this prediction
+        const existingAutoFeedback = await db.collection('trainingData')
+          .where('predictionId', '==', predictionId)
+          .where('type', '==', 'l2_auto_feedback')
+          .limit(1)
+          .get();
+
+        if (!existingAutoFeedback.empty) {
+          logger.info(`[L2_AUTO_FEEDBACK] Auto feedback already exists for prediction ${predictionId}, skipping`);
+          feedbackSkipped++;
+          continue;
+        }
+
+        // Get actual expenses for this user in this month
+        const [year, monthStr] = month.split('-');
+        const monthStart = `${year}-${monthStr}-01`;
+        const monthEnd = new Date(Number(year), Number(monthStr), 0).toISOString().split('T')[0];
+
+        const actualExpensesSnap = await db.collection('users').doc(userId)
+          .collection('vydaje')
+          .where('datum', '>=', monthStart)
+          .where('datum', '<=', monthEnd)
+          .get();
+
+        const actualTotal = actualExpensesSnap.docs.reduce((sum, doc) => {
+          return sum + (Number(doc.data().castka) || 0);
+        }, 0);
+
+        // Calculate error
+        const predictedTotal = prediction.totalPredictedExpense || 0;
+        const errorAmount = actualTotal - predictedTotal;
+        const errorPercent = predictedTotal !== 0 ? ((actualTotal - predictedTotal) / predictedTotal) * 100 : 0;
+
+        // Create auto feedback record
+        const autoFeedbackRecord = {
+          type: 'l2_auto_feedback',
+          userId,
+          predictionId,
+          month,
+          predictedTotal: Math.round(predictedTotal),
+          actualTotal: Math.round(actualTotal),
+          errorAmount: Math.round(errorAmount),
+          errorPercent: Math.round(errorPercent * 10) / 10,
+          source: 'auto_monthly_actuals',
+          status: 'approved',
+          createdBy: 'system',
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          usedForTraining: false,
+        };
+
+        await db.collection('trainingData').add(autoFeedbackRecord);
+        feedbackCreated++;
+
+        logger.info(`[L2_AUTO_FEEDBACK] Created auto feedback for ${userId}/${month}: error ${errorPercent.toFixed(1)}%`);
+
+      } catch (predError) {
+        logger.error(`[L2_AUTO_FEEDBACK] Error processing prediction ${predDoc.id}:`, predError);
+        errors.push({
+          predictionId: predDoc.id,
+          error: predError instanceof Error ? predError.message : String(predError),
+        });
+      }
+    }
+
+    // Log audit trail
+    await logAdminAction(decodedToken.uid, 'L2_AUTO_FEEDBACK_GENERATED', {
+      month,
+      feedbackCreated,
+      feedbackSkipped,
+      errorCount: errors.length,
+    });
+
+    logger.info(`[L2_AUTO_FEEDBACK] Generation complete: created=${feedbackCreated}, skipped=${feedbackSkipped}`);
+
+    res.status(200).json({
+      ok: true,
+      message: `Auto feedback generated for ${month}`,
+      summary: {
+        month,
+        feedbackCreated,
+        feedbackSkipped,
+        errorCount: errors.length,
+        errors: errors.slice(0, 10),
+      },
+    });
+
+  } catch (err) {
+    logger.error('adminGenerateL2AutoFeedback error:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 📊 ML SYSTEM HEALTH & STATUS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+exports.adminGetMlSystemHealth = functions.region(REGION).https.onRequest(async (req, res) => {
+  try {
+    const auth = req.header('authorization')?.replace('Bearer ', '');
+    if (!auth) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+
+    const decodedToken = await admin.auth().verifyIdToken(auth);
+    const userDoc = await db.collection('users').doc(decodedToken.uid).get();
+    const userRole = userDoc.data()?.role;
+
+    if (!['admin', 'ml_admin'].includes(userRole)) {
+      return res.status(403).json({ ok: false, error: 'Forbidden: only admin/ml_admin' });
+    }
+
+    // Get prediction settings
+    const settingsDoc = await db.collection('appConfig').doc('predictionSettings').get();
+    const settings = settingsDoc.data();
+
+    // Get pipeline status
+    const pipelineStatusDoc = await db.collection('mlPipelineStatus').doc('l2Shadow').get();
+    const pipelineStatus = pipelineStatusDoc.exists ? pipelineStatusDoc.data() : null;
+
+    // Get recent ML runs
+    const mlRunsSnap = await db.collectionGroup('mlRuns')
+      .orderBy('startedAt', 'desc')
+      .limit(5)
+      .get();
+    const recentRuns = mlRunsSnap.docs.map(doc => ({
+      id: doc.id,
+      userId: doc.ref.parent.parent!.id,
+      ...doc.data(),
+    }));
+
+    // Get recent errors from mlDebugLogs
+    const recentErrorsSnap = await db.collection('mlDebugLogs')
+      .where('level', '==', 'error')
+      .orderBy('createdAt', 'desc')
+      .limit(5)
+      .get();
+    const recentErrors = recentErrorsSnap.docs.map(doc => doc.data());
+
+    // Count total feedback
+    const manualFeedbackSnap = await db.collection('trainingData')
+      .where('type', '==', 'l2_manual_feedback')
+      .where('status', '==', 'approved')
+      .get();
+    const totalManualFeedback = manualFeedbackSnap.size;
+
+    const autoFeedbackSnap = await db.collection('trainingData')
+      .where('type', '==', 'l2_auto_feedback')
+      .where('status', '==', 'approved')
+      .get();
+    const totalAutoFeedback = autoFeedbackSnap.size;
+
+    // Get latest manual feedback
+    let latestManualFeedback = null;
+    if (manualFeedbackSnap.size > 0) {
+      const sorted = manualFeedbackSnap.docs.sort((a, b) => {
+        const aTime = a.data().createdAt?.toMillis() || 0;
+        const bTime = b.data().createdAt?.toMillis() || 0;
+        return bTime - aTime;
+      });
+      latestManualFeedback = {
+        ...sorted[0].data(),
+        id: sorted[0].id,
+      };
+    }
+
+    res.status(200).json({
+      ok: true,
+      health: {
+        firebaseProjectId: 'evidence-vydaju',
+        predictionSettingsExists: settings != null,
+        l2ShadowEnabled: settings?.level2ShadowMode === true,
+        l2Enabled: settings?.level2Enabled === true,
+        activePredictionLevel: settings?.activePredictionLevel,
+      },
+      pipelineStatus,
+      recentRuns,
+      recentErrors,
+      feedbackStats: {
+        totalManualFeedback,
+        totalAutoFeedback,
+        latestManualFeedback,
+      },
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  } catch (err) {
+    logger.error('adminGetMlSystemHealth error:', err);
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 

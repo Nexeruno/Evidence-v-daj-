@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '@/auth/AuthProvider'
 import { useUserRole } from '@/hooks/useUserRole'
+import { useMlSystemHealth } from '@/hooks/useMlSystemHealth'
 import { useMlPipelineControl, usePredictionSettings, type PredictionSettings } from '@/hooks/useMlPipelineControl'
 
 export function MlControlPage() {
@@ -8,6 +9,7 @@ export function MlControlPage() {
   const { role: userRole } = useUserRole(user)
   const { updatePredictionSettings, runLevel2ShadowPipeline, generateL2AutoFeedback } = useMlPipelineControl()
   const { settings, loading: settingsLoading, error: settingsError, reload: reloadSettings } = usePredictionSettings()
+  const { health, loading: healthLoading, error: healthError, reload: reloadHealth } = useMlSystemHealth()
 
   const [statusMessage, setStatusMessage] = useState('')
   const [statusType, setStatusType] = useState<'success' | 'error'>('success')
@@ -329,6 +331,90 @@ export function MlControlPage() {
         </div>
       )}
 
+      {/* ─── System Health Dashboard ─────────────────────────────────────── */}
+      <div className="card rounded-lg p-6 space-y-4 border-2 border-blue-400 dark:border-blue-600">
+        <h2 className="text-lg font-semibold text-light-text dark:text-dark-text">📊 ML System Health</h2>
+
+        {healthLoading ? (
+          <p className="text-sm text-light-textMuted">Loading system health...</p>
+        ) : healthError ? (
+          <p className="text-sm text-red-600 dark:text-red-400">⚠️ {healthError}</p>
+        ) : health ? (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="bg-light-border dark:bg-dark-border rounded p-3">
+                <p className="text-xs text-light-textMuted dark:text-dark-textMuted">Firebase</p>
+                <p className="text-sm font-semibold text-light-text dark:text-dark-text">evidence-vydaju</p>
+              </div>
+              <div className="bg-light-border dark:bg-dark-border rounded p-3">
+                <p className="text-xs text-light-textMuted dark:text-dark-textMuted">L2 Enabled</p>
+                <p className={`text-sm font-semibold ${health.health.l2Enabled ? 'text-green-600' : 'text-red-600'}`}>
+                  {health.health.l2Enabled ? '✅ Yes' : '❌ No'}
+                </p>
+              </div>
+              <div className="bg-light-border dark:bg-dark-border rounded p-3">
+                <p className="text-xs text-light-textMuted dark:text-dark-textMuted">L2 Shadow</p>
+                <p className={`text-sm font-semibold ${health.health.l2ShadowEnabled ? 'text-blue-600' : 'text-gray-600'}`}>
+                  {health.health.l2ShadowEnabled ? '🔵 ON' : '⚫ OFF'}
+                </p>
+              </div>
+              <div className="bg-light-border dark:bg-dark-border rounded p-3">
+                <p className="text-xs text-light-textMuted dark:text-dark-textMuted">Active Level</p>
+                <p className="text-sm font-semibold text-light-text dark:text-dark-text">L{health.health.activePredictionLevel}</p>
+              </div>
+            </div>
+
+            {/* Feedback Stats */}
+            <div className="grid grid-cols-3 gap-3 pt-3 border-t border-light-border dark:border-dark-border">
+              <div>
+                <p className="text-xs text-light-textMuted dark:text-dark-textMuted">Manual Feedback</p>
+                <p className="text-2xl font-bold text-blue-600">{health.feedbackStats.totalManualFeedback}</p>
+              </div>
+              <div>
+                <p className="text-xs text-light-textMuted dark:text-dark-textMuted">Auto Feedback</p>
+                <p className="text-2xl font-bold text-purple-600">{health.feedbackStats.totalAutoFeedback}</p>
+              </div>
+              <div>
+                <p className="text-xs text-light-textMuted dark:text-dark-textMuted">Total Feedback</p>
+                <p className="text-2xl font-bold text-green-600">
+                  {health.feedbackStats.totalManualFeedback + health.feedbackStats.totalAutoFeedback}
+                </p>
+              </div>
+            </div>
+
+            {/* Pipeline Status */}
+            {health.pipelineStatus && (
+              <div className="bg-blue-50 dark:bg-blue-950/20 rounded p-3 border border-blue-300 dark:border-blue-700">
+                <p className="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-1">Last Pipeline Run</p>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <span className="text-light-textMuted dark:text-dark-textMuted">Status:</span>
+                    <span className={`ml-2 font-semibold ${
+                      health.pipelineStatus.status === 'completed' ? 'text-green-600' :
+                      health.pipelineStatus.status === 'running' ? 'text-yellow-600' :
+                      'text-red-600'
+                    }`}>
+                      {health.pipelineStatus.status}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-light-textMuted dark:text-dark-textMuted">Stage:</span>
+                    <span className="ml-2 font-semibold text-light-text dark:text-dark-text">{health.pipelineStatus.stage}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={reloadHealth}
+              className="w-full px-3 py-2 rounded text-sm bg-blue-600 dark:bg-blue-700 text-white hover:bg-blue-700 font-semibold"
+            >
+              🔄 Refresh Health
+            </button>
+          </div>
+        ) : null}
+      </div>
+
       {/* ── Level 1 Control ─────────────────────────────────────────────── */}
       <div className="card rounded-lg p-6 space-y-4">
         <div className="flex items-start justify-between gap-4">
@@ -521,21 +607,100 @@ export function MlControlPage() {
         </div>
       )}
 
+      {/* ─── Recent Pipeline Runs ──────────────────────────────────────── */}
+      {health?.recentRuns && health.recentRuns.length > 0 && (
+        <div className="card rounded-lg p-6 space-y-4">
+          <h2 className="text-lg font-semibold text-light-text dark:text-dark-text">📋 Recent Pipeline Runs</h2>
+          <div className="space-y-2">
+            {health.recentRuns.slice(0, 5).map((run, idx) => (
+              <div key={idx} className="border border-light-border dark:border-dark-border rounded p-3 bg-light-bg dark:bg-dark-bg/50">
+                <div className="flex items-center justify-between mb-1">
+                  <p className="font-semibold text-light-text dark:text-dark-text text-sm">
+                    {new Date(run.startedAt?.toDate?.() || run.startedAt).toLocaleString()}
+                  </p>
+                  <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                    run.status === 'completed' ? 'bg-green-100 text-green-700' :
+                    run.status === 'partial_success' ? 'bg-yellow-100 text-yellow-700' :
+                    'bg-red-100 text-red-700'
+                  }`}>
+                    {run.status}
+                  </span>
+                </div>
+                <p className="text-xs text-light-textMuted dark:text-dark-textMuted">
+                  Users: {run.summary?.usersProcessed || 0} | Predictions: {run.summary?.predictionsCreated || 0} |
+                  Errors: {run.errorCount || 0}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ─── ML Debug Console / Logs ───────────────────────────────────── */}
+      {health?.recentErrors && health.recentErrors.length > 0 && (
+        <div className="card rounded-lg p-6 space-y-4 border-2 border-red-300 dark:border-red-700">
+          <h2 className="text-lg font-semibold text-light-text dark:text-dark-text">🚨 Recent Errors</h2>
+          <div className="space-y-2">
+            {health.recentErrors.slice(0, 10).map((error, idx) => (
+              <div key={idx} className="border border-red-300 dark:border-red-700 rounded p-3 bg-red-50 dark:bg-red-950/20">
+                <div className="flex items-start justify-between mb-1">
+                  <p className="font-mono text-xs text-red-700 dark:text-red-300 font-semibold">{error.source} / {error.stage}</p>
+                  <span className="text-xs text-red-600 dark:text-red-400">
+                    {new Date(error.createdAt?.toDate?.() || error.createdAt).toLocaleTimeString()}
+                  </span>
+                </div>
+                <p className="text-sm text-red-700 dark:text-red-300 mb-1">{error.message}</p>
+                {error.userId && (
+                  <p className="text-xs text-red-600 dark:text-red-400">User: {error.userId}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ─── ML Model Information ──────────────────────────────────────── */}
+      <div className="card rounded-lg p-4 bg-amber-50 dark:bg-amber-950/20 border border-amber-300 dark:border-amber-700">
+        <p className="text-xs text-amber-700 dark:text-amber-300">
+          <strong>📌 Current L2 Implementation:</strong> Simplified baseline with manual/auto calibration
+          <br/>
+          <strong>🔧 Model Type:</strong> Not actual Python ML model (supervised learning not active yet)
+          <br/>
+          <strong>📊 Learning Method:</strong> Correction factor calibration from manual &amp; auto feedback
+          <br/>
+          <strong>🎯 Future:</strong> Real Python ML model with feature engineering, retraining, personalization
+        </p>
+      </div>
+
       {/* ── Debug Box ── */}
       <div className="card rounded-lg p-4 bg-slate-100 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700">
         <details>
           <summary className="cursor-pointer font-mono text-xs text-slate-700 dark:text-slate-300 select-none">
-            🔧 Debug: Prediction Settings
+            🔧 Debug: System State
           </summary>
           <pre className="mt-2 text-xs bg-slate-900 text-slate-100 p-3 rounded overflow-auto max-h-64">
 {JSON.stringify({
   predictionSettings: settings,
+  mlHealth: {
+    l2ShadowEnabled: health?.health.l2ShadowEnabled,
+    l2Enabled: health?.health.l2Enabled,
+    activePredictionLevel: health?.health.activePredictionLevel,
+  },
+  pipelineStatus: health?.pipelineStatus,
+  feedbackCounts: {
+    manual: health?.feedbackStats.totalManualFeedback,
+    auto: health?.feedbackStats.totalAutoFeedback,
+  },
   derivedState: { l1Status, l2Status, shadowModeOn, isL2Active, isL2Shadow },
-  settingsLoading,
-  settingsError,
-  actionLoading,
-  statusMessage,
-  statusType,
+  uiState: {
+    settingsLoading,
+    settingsError,
+    healthLoading,
+    healthError,
+    actionLoading,
+    statusMessage,
+    statusType,
+  },
   hasIpcApi: !!window.ipcApi,
   ...debugInfo,
 }, null, 2)}

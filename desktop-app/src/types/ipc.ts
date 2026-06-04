@@ -9,6 +9,18 @@ export interface PipelineResult {
   pipelineId?: string
   usersProcessed?: number
   predictionsCreated?: number
+  summary?: {
+    usersProcessed?: number
+    predictionsCreated?: number
+    fallbackUsed?: number
+    errorCount?: number
+    durationMs?: number
+    modelType?: string
+    isRealMlModel?: boolean
+    modelImplementation?: string
+    usedDataSources?: Record<string, boolean>
+    months?: number
+  }
 }
 
 export interface PipelineStatus {
