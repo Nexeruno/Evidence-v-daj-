@@ -49,10 +49,12 @@ interface L2Prediction {
   active: boolean
   totalPredictedExpense: number
   trainingDataUsed: boolean
+  trainingDataCount?: number
   manualFeedbackCount?: number
   autoFeedbackCount?: number
   finalCorrectionFactor?: number
   isRealMlModel: boolean
+  modelVersion?: string
 }
 
 export function TrainingDataPage() {
@@ -180,10 +182,12 @@ export function TrainingDataPage() {
           active: data.active,
           totalPredictedExpense: data.totalPredictedExpense,
           trainingDataUsed: data.trainingDataUsed || false,
+          trainingDataCount: data.trainingDataCount,
           manualFeedbackCount: data.manualFeedbackCount,
           autoFeedbackCount: data.autoFeedbackCount,
           finalCorrectionFactor: data.finalCorrectionFactor,
           isRealMlModel: data.isRealMlModel || false,
+          modelVersion: data.modelVersion,
         }
       })
 
@@ -478,7 +482,11 @@ export function TrainingDataPage() {
                   </div>
                 </div>
                 {pred.trainingDataUsed && (
-                  <div className="grid grid-cols-3 gap-2 text-xs bg-green-50 dark:bg-green-950/30 p-2 rounded">
+                  <div className="grid grid-cols-4 gap-2 text-xs bg-green-50 dark:bg-green-950/30 p-2 rounded">
+                    <div>
+                      <p className="text-light-textMuted dark:text-dark-textMuted">Total FB</p>
+                      <p className="font-semibold text-light-text dark:text-dark-text">{pred.trainingDataCount || 0}</p>
+                    </div>
                     <div>
                       <p className="text-light-textMuted dark:text-dark-textMuted">Manual FB</p>
                       <p className="font-semibold text-light-text dark:text-dark-text">{pred.manualFeedbackCount || 0}</p>
