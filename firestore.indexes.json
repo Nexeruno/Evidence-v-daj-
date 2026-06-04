@@ -111,6 +111,33 @@
           "order": "DESCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "mlPredictions",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "active", "order": "ASCENDING" },
+        { "fieldPath": "pipelineLevel", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "mlPredictions",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "pipelineLevel", "order": "ASCENDING" },
+        { "fieldPath": "shadowMode", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "mlDebugLogs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "level", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
     }
   ]
 }

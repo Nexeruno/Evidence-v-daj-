@@ -47,11 +47,28 @@ function StatBox({ label, value, sub }: { label: string; value: string | number;
 }
 
 function formatTs(ts: any): string {
-  if (!ts) return '—'
+  if (ts === null || ts === undefined) return '—'
   try {
-    const d = ts.toDate ? ts.toDate() : new Date(ts)
+    let d: Date
+    if (typeof ts.toDate === 'function') {
+      // Firestore Timestamp object
+      d = ts.toDate()
+    } else if (typeof ts === 'object' && ('seconds' in ts || '_seconds' in ts)) {
+      // Plain { seconds, nanoseconds } or { _seconds, _nanoseconds }
+      const sec = ts.seconds ?? ts._seconds
+      d = new Date(sec * 1000)
+    } else if (ts instanceof Date) {
+      d = ts
+    } else if (typeof ts === 'string' || typeof ts === 'number') {
+      d = new Date(ts)
+    } else {
+      return '—'
+    }
+    if (isNaN(d.getTime())) return '—'
     return d.toLocaleString()
-  } catch { return '—' }
+  } catch {
+    return '—'
+  }
 }
 
 function formatMs(ms?: number): string {
