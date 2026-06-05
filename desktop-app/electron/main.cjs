@@ -179,3 +179,11 @@ ipcMain.handle("clearLocalCache", async (event) => {
     message: "Local cache cleared",
   };
 });
+
+ipcMain.handle("generateAiProfile", async (event, idToken, userId) => {
+  return callCloudFunction('adminGenerateAiProfile', idToken, { userId });
+});
+
+ipcMain.handle("generateAllAiProfiles", async (event, idToken) => {
+  return callCloudFunction('adminGenerateAllAiProfiles', idToken, {});
+});

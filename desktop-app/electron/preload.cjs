@@ -9,4 +9,8 @@ contextBridge.exposeInMainWorld("ipcApi", {
     ipcRenderer.invoke("callCloudFunction", functionName, idToken, data),
   clearLocalCache: () =>
     ipcRenderer.invoke("clearLocalCache"),
+  generateAiProfile: (idToken, userId) =>
+    ipcRenderer.invoke("generateAiProfile", idToken, userId),
+  generateAllAiProfiles: (idToken) =>
+    ipcRenderer.invoke("generateAllAiProfiles", idToken),
 });

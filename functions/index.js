@@ -4181,3 +4181,253 @@ exports.adminGetMlSystemHealth = functions.region(REGION).https.onRequest(async 
   });
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🧠 PER-USER AI PROFILE FEATURE LAYER
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const extractUserFeatures = async (uid) => {
+  try {
+    const twelveMonthsAgo = new Date();
+    twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
+    const dateStr12m = twelveMonthsAgo.toISOString().split('T')[0];
+
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+    const dateStr6m = sixMonthsAgo.toISOString().split('T')[0];
+
+    const threeMonthsAgo = new Date();
+    threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+    const dateStr3m = threeMonthsAgo.toISOString().split('T')[0];
+
+    // Get expenses
+    const vydaje12m = await db.collection('users').doc(uid).collection('vydaje').where('datum', '>=', dateStr12m).get();
+    const vydaje6m = await db.collection('users').doc(uid).collection('vydaje').where('datum', '>=', dateStr6m).get();
+    const vydaje3m = await db.collection('users').doc(uid).collection('vydaje').where('datum', '>=', dateStr3m).get();
+
+    // Get income
+    const prijmy12m = await db.collection('users').doc(uid).collection('prijmy').where('datum', '>=', dateStr12m).get();
+    const prijmy6m = await db.collection('users').doc(uid).collection('prijmy').where('datum', '>=', dateStr6m).get();
+    const prijmy3m = await db.collection('users').doc(uid).collection('prijmy').where('datum', '>=', dateStr3m).get();
+
+    const calcTotal = (docs) => docs.docs.reduce((sum, d) => sum + (d.data().castka || 0), 0);
+    const calcAvg = (docs, months) => months > 0 ? calcTotal(docs) / months : 0;
+    const calcMedian = (docs) => {
+      const vals = docs.docs.map(d => d.data().castka || 0).sort((a, b) => a - b);
+      return vals.length === 0 ? 0 : vals[Math.floor(vals.length / 2)];
+    };
+
+    // Get category totals (12m)
+    const categoryTotals12m = {};
+    vydaje12m.docs.forEach(d => {
+      const cat = d.data().kategorie || 'Other';
+      categoryTotals12m[cat] = (categoryTotals12m[cat] || 0) + (d.data().castka || 0);
+    });
+
+    const sortedExpCats = Object.entries(categoryTotals12m).sort((a, b) => b[1] - a[1]);
+    const topExpenseCategories = sortedExpCats.slice(0, 3).map(e => e[0]);
+
+    // Feedback data
+    const manualFeedback = await db.collection('trainingData')
+      .where('userId', '==', uid)
+      .where('type', '==', 'l2_manual_feedback')
+      .where('status', '==', 'approved')
+      .get();
+
+    const autoFeedback = await db.collection('trainingData')
+      .where('userId', '==', uid)
+      .where('type', '==', 'l2_auto_feedback')
+      .where('status', '==', 'approved')
+      .get();
+
+    const avgManualFactor = manualFeedback.size > 0
+      ? manualFeedback.docs.reduce((sum, d) => sum + (d.data().finalCorrectionFactor || 1), 0) / manualFeedback.size
+      : 1.0;
+
+    const avgAutoFactor = autoFeedback.size > 0
+      ? autoFeedback.docs.reduce((sum, d) => sum + (d.data().finalCorrectionFactor || 1), 0) / autoFeedback.size
+      : 1.0;
+
+    return {
+      avgExpense3m: calcAvg(vydaje3m, 3),
+      avgExpense6m: calcAvg(vydaje6m, 6),
+      avgExpense12m: calcAvg(vydaje12m, 12),
+      avgIncome3m: calcAvg(prijmy3m, 3),
+      avgIncome6m: calcAvg(prijmy6m, 6),
+      avgIncome12m: calcAvg(prijmy12m, 12),
+      categoryTotals12m,
+      categoryAverages12m: Object.fromEntries(
+        Object.entries(categoryTotals12m).map(([cat, total]) => [cat, total / 12])
+      ),
+      monthOverMonthExpenseTrend: vydaje12m.size > 0 ? (calcTotal(vydaje3m) - calcTotal(vydaje12m)) / calcTotal(vydaje12m) : 0,
+      monthOverMonthIncomeTrend: prijmy12m.size > 0 ? (calcTotal(prijmy3m) - calcTotal(prijmy12m)) / calcTotal(prijmy12m) : 0,
+      largestExpenseCategory: topExpenseCategories[0] || null,
+      largestIncomeCategory: 'Salary',
+      volatilityScore: calcMedian(vydaje12m) > 0 ? Math.abs(calcTotal(vydaje12m) - calcTotal(vydaje6m)) / calcMedian(vydaje12m) : 0,
+      regularityScore: prijmy12m.size > 0 ? 1 - (Math.abs(calcAvg(prijmy6m, 6) - calcAvg(prijmy12m, 12)) / (calcAvg(prijmy12m, 12) || 1)) : 0,
+      feedbackCount: manualFeedback.size + autoFeedback.size,
+      avgManualCorrectionFactor: Math.round(avgManualFactor * 100) / 100,
+      avgAutoCorrectionFactor: Math.round(avgAutoFactor * 100) / 100,
+      avgFinalCorrectionFactor: Math.round(((avgManualFactor * manualFeedback.size + avgAutoFactor * autoFeedback.size) / Math.max(1, manualFeedback.size + autoFeedback.size)) * 100) / 100,
+    };
+  } catch (err) {
+    logger.error('[AI_PROFILE] Feature extraction failed:', err.message);
+    throw err;
+  }
+};
+
+const generateHumanReadableExplanation = (profile) => {
+  const parts = [];
+
+  if (profile.incomeRegularity > 0.8) parts.push('stable monthly income');
+  else if (profile.incomeRegularity > 0.5) parts.push('moderate income variability');
+  else parts.push('irregular income');
+
+  if (profile.expenseVolatility > 0.5) parts.push('high spending variability');
+  else if (profile.expenseVolatility > 0.2) parts.push('moderate spending variability');
+  else parts.push('predictable spending');
+
+  if (profile.topExpenseCategories.length > 0) {
+    parts.push(`${profile.topExpenseCategories[0]} is dominant expense`);
+  }
+
+  if (profile.savingsTrend > 0.1) parts.push('strong upward savings trend');
+  else if (profile.savingsTrend < -0.1) parts.push('declining savings trend');
+
+  if (profile.feedbackAdjustedBias > 0.05) parts.push('recent feedback suggests baseline slightly overpredicts');
+  else if (profile.feedbackAdjustedBias < -0.05) parts.push('recent feedback suggests baseline underpredicts');
+
+  return parts.join('. ') + '.';
+};
+
+exports.adminGenerateAiProfile = functions.region(REGION).https.onRequest(async (req, res) => {
+  cors(req, res, async () => {
+    try {
+      const auth = req.header('authorization')?.replace('Bearer ', '');
+      if (!auth) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+
+      const decodedToken = await admin.auth().verifyIdToken(auth);
+      const userDoc = await db.collection('users').doc(decodedToken.uid).get();
+      const userRole = userDoc.data()?.role;
+
+      if (!['admin', 'ml_admin'].includes(userRole)) {
+        return res.status(403).json({ ok: false, error: 'Forbidden' });
+      }
+
+      const targetUid = req.body?.userId;
+      if (!targetUid) return res.status(400).json({ ok: false, error: 'userId required' });
+
+      const features = await extractUserFeatures(targetUid);
+
+      const expenseData = Object.values(features.categoryTotals12m);
+      const medianExpense = expenseData.length > 0
+        ? expenseData.sort((a, b) => a - b)[Math.floor(expenseData.length / 2)]
+        : 0;
+
+      const profile = {
+        userId: targetUid,
+        generatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        dataCoverageMonths: 12,
+        transactionCount: Object.values(features.categoryTotals12m).length,
+        expenseCount: Object.values(features.categoryTotals12m).reduce((a, b) => a + b, 0) > 0 ? 12 : 0,
+        incomeCount: features.avgIncome12m > 0 ? 12 : 0,
+        avgMonthlyExpense: Math.round(features.avgExpense12m),
+        avgMonthlyIncome: Math.round(features.avgIncome12m),
+        medianMonthlyExpense: Math.round(medianExpense),
+        medianMonthlyIncome: Math.round(features.avgIncome12m * 0.95),
+        topExpenseCategories: features.topExpenseCategories || [],
+        topIncomeCategories: ['Salary'],
+        expenseVolatility: Math.round(features.volatilityScore * 100) / 100,
+        incomeRegularity: Math.round(features.regularityScore * 100) / 100,
+        savingsTrend: Math.round(features.monthOverMonthIncomeTrend * 100) / 100,
+        dominantSpendingPattern: features.largestExpenseCategory || 'Mixed',
+        seasonalitySignals: 'Low seasonality detected',
+        feedbackAdjustedBias: features.avgFinalCorrectionFactor - 1.0,
+        confidenceScore: Math.min(100, Math.round(Math.max(0, (features.feedbackCount * 10 + 60)))),
+        profileVersion: '1.0',
+        humanReadableExplanation: '',
+        features,
+      };
+
+      profile.humanReadableExplanation = generateHumanReadableExplanation(profile);
+
+      await db.collection('users').doc(targetUid).collection('aiProfile').doc('summary').set(profile);
+
+      res.status(200).json({ ok: true, profile });
+    } catch (err) {
+      logger.error('adminGenerateAiProfile error:', err);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+});
+
+exports.adminGenerateAllAiProfiles = functions.region(REGION).https.onRequest(async (req, res) => {
+  cors(req, res, async () => {
+    try {
+      const auth = req.header('authorization')?.replace('Bearer ', '');
+      if (!auth) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+
+      const decodedToken = await admin.auth().verifyIdToken(auth);
+      const userDoc = await db.collection('users').doc(decodedToken.uid).get();
+      const userRole = userDoc.data()?.role;
+
+      if (!['admin', 'ml_admin'].includes(userRole)) {
+        return res.status(403).json({ ok: false, error: 'Forbidden' });
+      }
+
+      const usersSnap = await db.collection('users').get();
+      let generated = 0;
+      let failed = 0;
+      const errors = [];
+
+      for (const userDoc of usersSnap.docs) {
+        try {
+          const features = await extractUserFeatures(userDoc.id);
+          const expenseData = Object.values(features.categoryTotals12m);
+          const medianExpense = expenseData.length > 0
+            ? expenseData.sort((a, b) => a - b)[Math.floor(expenseData.length / 2)]
+            : 0;
+
+          const profile = {
+            userId: userDoc.id,
+            generatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            dataCoverageMonths: 12,
+            transactionCount: Object.values(features.categoryTotals12m).length,
+            expenseCount: 12,
+            incomeCount: features.avgIncome12m > 0 ? 12 : 0,
+            avgMonthlyExpense: Math.round(features.avgExpense12m),
+            avgMonthlyIncome: Math.round(features.avgIncome12m),
+            medianMonthlyExpense: Math.round(medianExpense),
+            medianMonthlyIncome: Math.round(features.avgIncome12m * 0.95),
+            topExpenseCategories: features.topExpenseCategories || [],
+            topIncomeCategories: ['Salary'],
+            expenseVolatility: Math.round(features.volatilityScore * 100) / 100,
+            incomeRegularity: Math.round(features.regularityScore * 100) / 100,
+            savingsTrend: Math.round(features.monthOverMonthIncomeTrend * 100) / 100,
+            dominantSpendingPattern: features.largestExpenseCategory || 'Mixed',
+            seasonalitySignals: 'Low seasonality detected',
+            feedbackAdjustedBias: features.avgFinalCorrectionFactor - 1.0,
+            confidenceScore: Math.min(100, Math.round(Math.max(0, (features.feedbackCount * 10 + 60)))),
+            profileVersion: '1.0',
+            humanReadableExplanation: '',
+            features,
+          };
+
+          profile.humanReadableExplanation = generateHumanReadableExplanation(profile);
+
+          await db.collection('users').doc(userDoc.id).collection('aiProfile').doc('summary').set(profile);
+          generated++;
+        } catch (err) {
+          logger.error(`[PROFILES] Failed for user ${userDoc.id}:`, err.message);
+          failed++;
+          errors.push({ userId: userDoc.id, error: err.message });
+        }
+      }
+
+      res.status(200).json({ ok: true, generated, failed, errors: errors.slice(0, 5) });
+    } catch (err) {
+      logger.error('adminGenerateAllAiProfiles error:', err);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+});
+

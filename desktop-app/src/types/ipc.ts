@@ -36,6 +36,8 @@ export interface IpcApi {
   getPipelineStatus: () => Promise<PipelineStatus>
   callCloudFunction: (functionName: string, idToken: string, data: any) => Promise<any>
   clearLocalCache: () => Promise<void>
+  generateAiProfile: (idToken: string, userId: string) => Promise<any>
+  generateAllAiProfiles: (idToken: string) => Promise<any>
 }
 
 declare global {
