@@ -40,6 +40,28 @@ function ConfidenceBadge({ score }: { score: number }) {
   )
 }
 
+function StaleBadge({ profileStale, hasProfile }: { profileStale?: boolean; hasProfile: boolean }) {
+  if (!hasProfile) {
+    return (
+      <span className="px-2 py-0.5 rounded text-xs font-semibold bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
+        Missing
+      </span>
+    )
+  }
+  if (profileStale) {
+    return (
+      <span className="px-2 py-0.5 rounded text-xs font-semibold bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
+        🟡 Stale
+      </span>
+    )
+  }
+  return (
+    <span className="px-2 py-0.5 rounded text-xs font-semibold bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300">
+      ✓ Fresh
+    </span>
+  )
+}
+
 function StatCell({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="bg-light-bg dark:bg-dark-bg rounded p-3">
@@ -278,11 +300,12 @@ export function AiProfilesPage() {
                         {u.displayName || u.email || u.uid}
                       </p>
                       {hasProfile ? (
-                        <ConfidenceBadge score={profile.confidenceScore} />
+                        <>
+                          <ConfidenceBadge score={profile.confidenceScore} />
+                          <StaleBadge profileStale={profile.profileStale} hasProfile={true} />
+                        </>
                       ) : (
-                        <span className="px-2 py-0.5 rounded text-xs font-semibold bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
-                          No profile
-                        </span>
+                        <StaleBadge profileStale={false} hasProfile={false} />
                       )}
                     </div>
                     <p className="text-xs text-light-textMuted dark:text-dark-textMuted font-mono">{u.uid}</p>
@@ -365,6 +388,57 @@ export function AiProfilesPage() {
                 <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
                   <p className="text-sm text-blue-700 dark:text-blue-300 italic">"{p.humanReadableExplanation || '—'}"</p>
                 </div>
+
+                {/* Profile Status (Fresh/Stale) */}
+                {(() => {
+                  const isStale = p.profileStale;
+                  const staleReasons = p.staleReason || [];
+                  const bgClass = isStale
+                    ? 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800'
+                    : 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800';
+                  const textClass = isStale
+                    ? 'text-amber-700 dark:text-amber-300'
+                    : 'text-green-700 dark:text-green-300';
+                  const badgeClass = isStale
+                    ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300'
+                    : 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300';
+
+                  return (
+                    <div className={`border rounded-lg p-4 ${bgClass}`}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className={`px-2 py-1 rounded text-xs font-semibold ${badgeClass}`}>
+                          {isStale ? '🟡 Stale' : '✓ Fresh'}
+                        </span>
+                        <p className={`text-sm font-semibold ${textClass}`}>
+                          {isStale ? 'Profile needs regeneration' : 'Profile is up-to-date'}
+                        </p>
+                      </div>
+                      {isStale && staleReasons.length > 0 && (
+                        <div className={`text-xs ${textClass} space-y-1 mt-2`}>
+                          <p className="font-semibold">Why this profile is stale:</p>
+                          <ul className="list-disc list-inside space-y-0.5">
+                            {staleReasons.map((reason) => (
+                              <li key={reason}>
+                                {reason === 'new_transactions_since_profile_generation' && 'New transactions added since profile was generated'}
+                                {reason === 'new_feedback_since_profile_generation' && 'New feedback submitted since profile was generated'}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {p.lastTransactionAt && (
+                        <p className={`text-xs ${textClass} mt-2`}>
+                          Last transaction: <strong>{formatTs(p.lastTransactionAt)}</strong>
+                        </p>
+                      )}
+                      {p.lastFeedbackAt && (
+                        <p className={`text-xs ${textClass}`}>
+                          Last feedback: <strong>{formatTs(p.lastFeedbackAt)}</strong>
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* Profile metadata */}
                 <div>

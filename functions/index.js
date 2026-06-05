@@ -4416,6 +4416,73 @@ const generateHumanReadableExplanation = (profile) => {
   return parts.join('. ') + '.';
 };
 
+// Check if a user's AI Profile is stale based on recent data changes
+const checkAiProfileStaleness = async (uid, profileGeneratedAt) => {
+  try {
+    const staleReason = [];
+    const now = new Date();
+    const profileGenTime = profileGeneratedAt?.toDate ? profileGeneratedAt.toDate() : profileGeneratedAt;
+
+    // Find last transaction (vydaje or prijmy)
+    const vydaje = await db.collection('users').doc(uid).collection('vydaje')
+      .orderBy('datum', 'desc')
+      .limit(1)
+      .get();
+    const lastVydaj = vydaje.docs[0]?.data();
+
+    const prijmy = await db.collection('users').doc(uid).collection('prijmy')
+      .orderBy('datum', 'desc')
+      .limit(1)
+      .get();
+    const lastPrijmy = prijmy.docs[0]?.data();
+
+    // Determine last transaction timestamp
+    const vydajDate = lastVydaj?.datum ? new Date(lastVydaj.datum) : null;
+    const prijmyDate = lastPrijmy?.datum ? new Date(lastPrijmy.datum) : null;
+    const lastTransactionAt = [vydajDate, prijmyDate]
+      .filter(d => d !== null)
+      .sort((a, b) => b.getTime() - a.getTime())[0] || null;
+
+    // Check if transactions are newer than profile
+    if (lastTransactionAt && profileGenTime && lastTransactionAt > profileGenTime) {
+      staleReason.push('new_transactions_since_profile_generation');
+    }
+
+    // Find last feedback record
+    const feedback = await db.collection('trainingData')
+      .where('userId', '==', uid)
+      .where('status', '==', 'approved')
+      .orderBy('createdAt', 'desc')
+      .limit(1)
+      .get();
+    const lastFeedbackRecord = feedback.docs[0]?.data();
+    const lastFeedbackAt = lastFeedbackRecord?.createdAt || null;
+
+    // Check if feedback is newer than profile
+    if (lastFeedbackAt && profileGenTime) {
+      const feedbackDate = lastFeedbackAt.toDate ? lastFeedbackAt.toDate() : lastFeedbackAt;
+      if (feedbackDate > profileGenTime) {
+        staleReason.push('new_feedback_since_profile_generation');
+      }
+    }
+
+    return {
+      profileStale: staleReason.length > 0,
+      staleReason: staleReason,
+      lastTransactionAt: lastTransactionAt,
+      lastFeedbackAt: lastFeedbackAt,
+    };
+  } catch (err) {
+    logger.warn(`[AI_PROFILE_STALE] Check failed for ${uid}:`, err.message);
+    return {
+      profileStale: false,
+      staleReason: [],
+      lastTransactionAt: null,
+      lastFeedbackAt: null,
+    };
+  }
+};
+
 exports.adminGenerateAiProfile = functions.region(REGION).https.onRequest(async (req, res) => {
   cors(req, res, async () => {
     try {
@@ -4435,6 +4502,33 @@ exports.adminGenerateAiProfile = functions.region(REGION).https.onRequest(async 
 
       const features = await extractUserFeatures(targetUid);
 
+      // Load last transaction and feedback timestamps for staleness tracking
+      const vydaje = await db.collection('users').doc(targetUid).collection('vydaje')
+        .orderBy('datum', 'desc')
+        .limit(1)
+        .get();
+      const lastVydaj = vydaje.docs[0]?.data();
+
+      const prijmy = await db.collection('users').doc(targetUid).collection('prijmy')
+        .orderBy('datum', 'desc')
+        .limit(1)
+        .get();
+      const lastPrijmy = prijmy.docs[0]?.data();
+
+      const vydajDate = lastVydaj?.datum ? new Date(lastVydaj.datum) : null;
+      const prijmyDate = lastPrijmy?.datum ? new Date(lastPrijmy.datum) : null;
+      const lastTransactionAt = [vydajDate, prijmyDate]
+        .filter(d => d !== null)
+        .sort((a, b) => b.getTime() - a.getTime())[0] || null;
+
+      const feedback = await db.collection('trainingData')
+        .where('userId', '==', targetUid)
+        .where('status', '==', 'approved')
+        .orderBy('createdAt', 'desc')
+        .limit(1)
+        .get();
+      const lastFeedbackAt = feedback.docs[0]?.data()?.createdAt || null;
+
       const expenseData = Object.values(features.categoryTotals12m);
       const medianExpense = expenseData.length > 0
         ? expenseData.sort((a, b) => a - b)[Math.floor(expenseData.length / 2)]
@@ -4443,6 +4537,11 @@ exports.adminGenerateAiProfile = functions.region(REGION).https.onRequest(async 
       const profile = {
         userId: targetUid,
         generatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        sourceDataUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        profileStale: false,
+        staleReason: [],
+        lastTransactionAt: lastTransactionAt ? admin.firestore.Timestamp.fromDate(lastTransactionAt) : null,
+        lastFeedbackAt: lastFeedbackAt || null,
         dataCoverageMonths: 12,
         transactionCount: Object.values(features.categoryTotals12m).length,
         expenseCount: Object.values(features.categoryTotals12m).reduce((a, b) => a + b, 0) > 0 ? 12 : 0,
@@ -4499,6 +4598,34 @@ exports.adminGenerateAllAiProfiles = functions.region(REGION).https.onRequest(as
       for (const userDoc of usersSnap.docs) {
         try {
           const features = await extractUserFeatures(userDoc.id);
+
+          // Load last transaction and feedback timestamps for staleness tracking
+          const vydaje = await db.collection('users').doc(userDoc.id).collection('vydaje')
+            .orderBy('datum', 'desc')
+            .limit(1)
+            .get();
+          const lastVydaj = vydaje.docs[0]?.data();
+
+          const prijmy = await db.collection('users').doc(userDoc.id).collection('prijmy')
+            .orderBy('datum', 'desc')
+            .limit(1)
+            .get();
+          const lastPrijmy = prijmy.docs[0]?.data();
+
+          const vydajDate = lastVydaj?.datum ? new Date(lastVydaj.datum) : null;
+          const prijmyDate = lastPrijmy?.datum ? new Date(lastPrijmy.datum) : null;
+          const lastTransactionAt = [vydajDate, prijmyDate]
+            .filter(d => d !== null)
+            .sort((a, b) => b.getTime() - a.getTime())[0] || null;
+
+          const feedback = await db.collection('trainingData')
+            .where('userId', '==', userDoc.id)
+            .where('status', '==', 'approved')
+            .orderBy('createdAt', 'desc')
+            .limit(1)
+            .get();
+          const lastFeedbackAt = feedback.docs[0]?.data()?.createdAt || null;
+
           const expenseData = Object.values(features.categoryTotals12m);
           const medianExpense = expenseData.length > 0
             ? expenseData.sort((a, b) => a - b)[Math.floor(expenseData.length / 2)]
@@ -4507,6 +4634,11 @@ exports.adminGenerateAllAiProfiles = functions.region(REGION).https.onRequest(as
           const profile = {
             userId: userDoc.id,
             generatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            sourceDataUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            profileStale: false,
+            staleReason: [],
+            lastTransactionAt: lastTransactionAt ? admin.firestore.Timestamp.fromDate(lastTransactionAt) : null,
+            lastFeedbackAt: lastFeedbackAt || null,
             dataCoverageMonths: 12,
             transactionCount: Object.values(features.categoryTotals12m).length,
             expenseCount: 12,
@@ -4574,7 +4706,7 @@ exports.adminGetAllUsers = functions.region(REGION).https.onRequest(async (req, 
   });
 });
 
-// Returns saved AI profile for one user
+// Returns saved AI profile for one user (with staleness check)
 exports.adminGetAiProfile = functions.region(REGION).https.onRequest(async (req, res) => {
   cors(req, res, async () => {
     try {
@@ -4591,7 +4723,23 @@ exports.adminGetAiProfile = functions.region(REGION).https.onRequest(async (req,
       if (!profileDoc.exists) {
         return res.status(200).json({ ok: true, profile: null });
       }
-      res.status(200).json({ ok: true, profile: profileDoc.data() });
+
+      const profile = profileDoc.data();
+
+      // Check staleness
+      const generatedAt = profile.generatedAt?.toDate ? profile.generatedAt.toDate() : profile.generatedAt;
+      const staleness = await checkAiProfileStaleness(targetUid, generatedAt);
+
+      // Merge staleness info with profile
+      const enrichedProfile = {
+        ...profile,
+        profileStale: staleness.profileStale,
+        staleReason: staleness.staleReason,
+        lastTransactionAt: staleness.lastTransactionAt,
+        lastFeedbackAt: staleness.lastFeedbackAt,
+      };
+
+      res.status(200).json({ ok: true, profile: enrichedProfile });
     } catch (err) {
       logger.error('adminGetAiProfile error:', err);
       res.status(500).json({ ok: false, error: err.message });

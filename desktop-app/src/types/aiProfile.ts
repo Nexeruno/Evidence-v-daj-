@@ -42,6 +42,12 @@ export interface AiProfileSummary {
   profileVersion: string
   humanReadableExplanation: string
   feedbackCount?: number
+  // Staleness tracking
+  sourceDataUpdatedAt?: any
+  profileStale?: boolean
+  staleReason?: string[]
+  lastTransactionAt?: any
+  lastFeedbackAt?: any
 }
 
 export interface AiProfile extends AiProfileSummary {
