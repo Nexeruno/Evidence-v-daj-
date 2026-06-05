@@ -4773,7 +4773,8 @@ exports.adminRegenerateStaleProfiles = functions.region(REGION).https.onRequest(
       const staleUserIds = [];
       const results = {
         regenerated: 0,
-        skipped: 0,
+        skippedFresh: 0,
+        skippedMissing: 0,
         failed: 0,
         errors: [],
       };
@@ -4784,7 +4785,7 @@ exports.adminRegenerateStaleProfiles = functions.region(REGION).https.onRequest(
           const profileDoc = await db.collection('users').doc(userDoc.id).collection('aiProfile').doc('summary').get();
 
           if (!profileDoc.exists) {
-            results.skipped++;
+            results.skippedMissing++;
             continue;
           }
 
@@ -4797,11 +4798,11 @@ exports.adminRegenerateStaleProfiles = functions.region(REGION).https.onRequest(
           if (staleness.profileStale) {
             staleUserIds.push(userDoc.id);
           } else {
-            results.skipped++;
+            results.skippedFresh++;
           }
         } catch (err) {
           logger.warn(`[STALE_CHECK] Failed for user ${userDoc.id}:`, err.message);
-          results.skipped++;
+          results.skippedMissing++;
         }
       }
 

@@ -207,7 +207,11 @@ export function AiProfilesPage() {
       if (!window.ipcApi) throw new Error('IPC API not available')
       const result = await window.ipcApi.regenerateStaleProfiles(token)
       if (result?.ok) {
-        const msg = `✅ Regenerated ${result.regenerated || 0} stale profiles. Skipped: ${result.skipped || 0}. Failed: ${result.failed || 0}. Refreshing...`
+        const regen = result.regenerated || 0
+        const skipFresh = result.skippedFresh || 0
+        const skipMissing = result.skippedMissing || 0
+        const failed = result.failed || 0
+        const msg = `✅ Regenerated ${regen} stale profile${regen !== 1 ? 's' : ''}. Skipped: ${skipFresh} fresh, ${skipMissing} missing. Failed: ${failed}. Refreshing...`
         setStatusMsg({ text: msg, ok: true })
         // Reload profiles after regeneration
         const token2 = await getIdToken()
@@ -435,21 +439,32 @@ export function AiProfilesPage() {
                         View Detail
                       </button>
                     )}
-                    {profile?.profileStale ? (
+                    {hasProfile && profile?.profileStale ? (
+                      /* Stale profile - prominent regenerate action */
                       <button
                         onClick={() => handleGenerateProfile(u)}
-                        disabled={isGenerating || generatingAll}
+                        disabled={isGenerating || regeneratingStale}
                         className="px-3 py-1.5 rounded-lg text-sm font-semibold bg-amber-600 dark:bg-amber-700 text-white hover:bg-amber-700 disabled:opacity-50 animate-pulse"
                       >
-                        {isGenerating ? '⏳' : '🔄 Regenerate Now'}
+                        {isGenerating ? '⏳ Regenerating...' : '🔄 Regenerate Now'}
                       </button>
-                    ) : (
+                    ) : hasProfile && !profile?.profileStale ? (
+                      /* Fresh profile - neutral regenerate action */
                       <button
                         onClick={() => handleGenerateProfile(u)}
-                        disabled={isGenerating || generatingAll}
+                        disabled={isGenerating || regeneratingStale}
                         className="px-3 py-1.5 rounded-lg text-sm font-semibold bg-blue-600 dark:bg-blue-700 text-white hover:bg-blue-700 disabled:opacity-50"
                       >
-                        {isGenerating ? '⏳' : hasProfile ? '↺ Regenerate' : '⚙️ Generate'}
+                        {isGenerating ? '⏳ Regenerating...' : '↺ Regenerate'}
+                      </button>
+                    ) : (
+                      /* Missing profile - generate action */
+                      <button
+                        onClick={() => handleGenerateProfile(u)}
+                        disabled={isGenerating || regeneratingStale}
+                        className="px-3 py-1.5 rounded-lg text-sm font-semibold bg-green-600 dark:bg-green-700 text-white hover:bg-green-700 disabled:opacity-50"
+                      >
+                        {isGenerating ? '⏳ Generating...' : '⚙️ Generate'}
                       </button>
                     )}
                   </div>
