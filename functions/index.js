@@ -4724,13 +4724,21 @@ exports.adminGetAiProfile = functions.region(REGION).https.onRequest(async (req,
         return res.status(200).json({ ok: true, profile: null });
       }
 
-      const profile = profileDoc.data();
+      let profile = profileDoc.data();
 
-      // Check staleness
+      // Ensure old profiles (before staleness tracking) have the fields
+      if (profile.profileStale === undefined) {
+        profile.profileStale = false;
+      }
+      if (profile.staleReason === undefined) {
+        profile.staleReason = [];
+      }
+
+      // Check staleness to get current state
       const generatedAt = profile.generatedAt?.toDate ? profile.generatedAt.toDate() : profile.generatedAt;
       const staleness = await checkAiProfileStaleness(targetUid, generatedAt);
 
-      // Merge staleness info with profile
+      // Merge staleness info with profile (overwrite with current state)
       const enrichedProfile = {
         ...profile,
         profileStale: staleness.profileStale,
