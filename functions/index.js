@@ -3489,15 +3489,22 @@ exports.runLevel2ShadowPipeline = functions.region(REGION).https.onRequest(async
         });
 
         // Get user's latest Level 1 prediction
+        // Note: no orderBy to avoid composite index requirement — sort client-side instead
         const level1PredQuery = await db.collection('users').doc(uid)
           .collection('mlPredictions')
           .where('pipelineLevel', '==', 1)
           .where('active', '==', true)
-          .orderBy('createdAt', 'desc')
-          .limit(1)
           .get();
 
-        const level1Pred = level1PredQuery.empty ? null : level1PredQuery.docs[0].data();
+        let level1Pred = null;
+        if (!level1PredQuery.empty) {
+          const sorted = level1PredQuery.docs.sort((a, b) => {
+            const aMs = a.data().createdAt?.toMillis?.() ?? 0;
+            const bMs = b.data().createdAt?.toMillis?.() ?? 0;
+            return bMs - aMs;
+          });
+          level1Pred = sorted[0].data();
+        }
 
         // Get user's recent transactions (last 12 months)
         const twelveMonthsAgo = new Date();
