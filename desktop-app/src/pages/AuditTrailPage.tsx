@@ -136,26 +136,24 @@ export function AuditTrailPage() {
         ) : filteredLogs.length === 0 ? (
           <div className="text-center text-light-textMuted dark:text-dark-textMuted">No audit logs found</div>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-1">
             {filteredLogs.map((log: any) => (
               <div
                 key={log.id}
-                className="flex items-center gap-4 p-4 bg-light-border dark:bg-dark-border/40 rounded-lg border border-light-border dark:border-dark-border hover:bg-light-border/80 dark:hover:bg-dark-border/60 transition-colors"
+                className="flex items-center gap-2 p-2 bg-light-border dark:bg-dark-border/40 rounded border border-light-border dark:border-dark-border hover:bg-light-border/80 dark:hover:bg-dark-border/60 transition-colors"
               >
-                <div className="flex items-center gap-3 flex-nowrap min-w-0 flex-1">
-                  <span className="px-2 py-1 rounded text-sm font-semibold bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 shrink-0 whitespace-nowrap">
-                    ✅ {log.action}
-                  </span>
-                  <span className="text-sm text-light-textMuted dark:text-dark-textMuted shrink-0">
-                    {formatTs(log.timestamp)}
-                  </span>
-                  <p className="text-base text-light-text dark:text-dark-text truncate">
-                    <strong>Admin:</strong> {log.adminId}
-                  </p>
-                </div>
+                <p className="text-base text-light-text dark:text-dark-text truncate min-w-0">
+                  <strong>Admin:</strong> {log.adminId}
+                </p>
+                <span className="px-2 py-0.5 rounded text-xs font-semibold bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 shrink-0 whitespace-nowrap">
+                  ✅ {log.action}
+                </span>
+                <span className="text-xs text-light-textMuted dark:text-dark-textMuted shrink-0 whitespace-nowrap">
+                  {formatTs(log.timestamp)}
+                </span>
                 <button
                   onClick={() => setSelectedLog(log)}
-                  className="px-4 py-2 rounded-lg text-sm font-semibold bg-blue-600 dark:bg-blue-700 text-white hover:bg-blue-700 shrink-0 whitespace-nowrap"
+                  className="px-3 py-1 rounded text-sm font-semibold bg-blue-600 dark:bg-blue-700 text-white hover:bg-blue-700 shrink-0 whitespace-nowrap ml-auto"
                 >
                   View
                 </button>
