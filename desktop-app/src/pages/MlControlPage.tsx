@@ -83,21 +83,6 @@ function LogLevelBadge({ level }: { level: string }) {
   return <span className={`px-2 py-0.5 rounded text-xs font-mono font-semibold ${c}`}>{level}</span>
 }
 
-function ExpandableJson({ data }: { data: Record<string, unknown> }) {
-  const [open, setOpen] = useState(false)
-  if (!data || Object.keys(data).length === 0) return <span className="text-xs text-light-textMuted">—</span>
-  return (
-    <div>
-      <button onClick={() => setOpen(o => !o)} className="text-xs text-blue-600 underline">{open ? 'collapse' : 'expand'}</button>
-      {open && (
-        <pre className="mt-1 text-xs bg-slate-900 text-slate-100 p-2 rounded overflow-auto max-h-40">
-          {JSON.stringify(data, null, 2)}
-        </pre>
-      )}
-    </div>
-  )
-}
-
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export function MlControlPage() {
@@ -115,6 +100,7 @@ export function MlControlPage() {
   const [autoFeedbackMonth, setAutoFeedbackMonth] = useState('')
   const [autoFeedbackLoading, setAutoFeedbackLoading] = useState(false)
   const [debugLogFilter, setDebugLogFilter] = useState<'all' | 'info' | 'warning' | 'error'>('all')
+  const [selectedDebugLog, setSelectedDebugLog] = useState<MlDebugLog | null>(null)
 
   // ── Prediction mode helpers ──────────────────────────────────────────────
   const isL2Active =
@@ -536,7 +522,7 @@ export function MlControlPage() {
 
       {/* ─── G. ML Debug Console ────────────────────────────────────────────── */}
       <SectionCard title="G. ML Debug Console">
-        <div className="flex flex-wrap gap-2 pb-3 border-b border-light-border dark:border-dark-border">
+        <div className="flex flex-wrap gap-2 pb-3 border-b border-light-border dark:border-dark-border items-center">
           {(['all', 'info', 'warning', 'error'] as const).map(f => (
             <button
               key={f}
@@ -547,48 +533,45 @@ export function MlControlPage() {
               {f === 'all' ? 'All' : f}
             </button>
           ))}
-          <span className="text-xs text-light-textMuted self-center ml-auto">{filteredLogs.length} log{filteredLogs.length !== 1 ? 's' : ''}</span>
+          <span className="text-xs text-light-textMuted ml-auto">{filteredLogs.length} log{filteredLogs.length !== 1 ? 's' : ''}</span>
         </div>
 
         {healthError ? (
-          <p className="text-sm text-red-600 dark:text-red-400">❌ {healthError}</p>
+          <p className="text-sm text-red-600 dark:text-red-400 mt-3">❌ {healthError}</p>
         ) : allLogs.length === 0 ? (
-          <p className="text-sm text-light-textMuted dark:text-dark-textMuted">No debug logs yet. Logs will appear here when the pipeline runs.</p>
+          <p className="text-sm text-light-textMuted dark:text-dark-textMuted mt-3">No debug logs yet. Logs will appear here when the pipeline runs.</p>
         ) : filteredLogs.length === 0 ? (
-          <p className="text-sm text-light-textMuted dark:text-dark-textMuted">No {debugLogFilter} logs.</p>
+          <p className="text-sm text-light-textMuted dark:text-dark-textMuted mt-3">No {debugLogFilter} logs.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead className="bg-light-border dark:bg-dark-border">
-                <tr>
-                  <th className="px-3 py-2 text-left">Time</th>
-                  <th className="px-3 py-2 text-left">Level</th>
-                  <th className="px-3 py-2 text-left">Source</th>
-                  <th className="px-3 py-2 text-left">Stage</th>
-                  <th className="px-3 py-2 text-left">User</th>
-                  <th className="px-3 py-2 text-left">Message</th>
-                  <th className="px-3 py-2 text-left">Details</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredLogs.map((log: MlDebugLog, i) => (
-                  <tr key={log.id ?? i} className="border-b border-light-border dark:border-dark-border hover:bg-light-border dark:hover:bg-dark-border/50">
-                    <td className="px-3 py-2 whitespace-nowrap">{formatTs(log.createdAt)}</td>
-                    <td className="px-3 py-2"><LogLevelBadge level={log.level} /></td>
-                    <td className="px-3 py-2 font-mono text-light-textMuted">{log.source}</td>
-                    <td className="px-3 py-2 font-mono text-light-textMuted">{log.stage}</td>
-                    <td className="px-3 py-2 font-mono">{log.userId ? log.userId.slice(0, 8) + '…' : '—'}</td>
-                    <td className="px-3 py-2 max-w-xs truncate" title={log.message}>{log.message}</td>
-                    <td className="px-3 py-2">
-                      <ExpandableJson data={log.details ?? {}} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="space-y-2 mt-3">
+            {filteredLogs.map((log: MlDebugLog, i) => (
+              <div
+                key={log.id ?? i}
+                className="flex items-start gap-3 p-3 bg-light-border dark:bg-dark-border/40 rounded-lg border border-light-border dark:border-dark-border hover:bg-light-border/80 dark:hover:bg-dark-border/60 transition-colors"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                    <LogLevelBadge level={log.level} />
+                    <span className="text-xs text-light-textMuted dark:text-dark-textMuted">{formatTs(log.createdAt)}</span>
+                    <span className="text-xs font-mono text-light-textMuted dark:text-dark-textMuted">{log.source}</span>
+                    <span className="text-xs font-mono text-light-textMuted dark:text-dark-textMuted bg-light-bg dark:bg-dark-bg px-2 py-0.5 rounded">{log.stage}</span>
+                  </div>
+                  <p className="text-sm text-light-text dark:text-dark-text break-words">{log.message}</p>
+                  {log.userId && (
+                    <p className="text-xs text-light-textMuted dark:text-dark-textMuted mt-1">User: <code className="font-mono">{log.userId}</code></p>
+                  )}
+                </div>
+                <button
+                  onClick={() => setSelectedDebugLog(log)}
+                  className="px-3 py-1 rounded text-xs font-semibold bg-blue-600 dark:bg-blue-700 text-white hover:bg-blue-700 shrink-0 whitespace-nowrap"
+                >
+                  View
+                </button>
+              </div>
+            ))}
           </div>
         )}
-        <button onClick={reloadHealth} className="w-full px-3 py-2 rounded text-sm bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-300 font-semibold mt-2">
+        <button onClick={reloadHealth} className="w-full px-3 py-2 rounded text-sm bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-300 font-semibold mt-3">
           🔄 Refresh Logs
         </button>
       </SectionCard>
@@ -613,6 +596,81 @@ export function MlControlPage() {
           </div>
         )}
       </SectionCard>
+
+      {/* ─── Debug Log Detail Modal ────────────────────────────────────────── */}
+      {selectedDebugLog && (
+        <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-light-card dark:bg-dark-card rounded-lg max-w-2xl w-full max-h-[80vh] overflow-y-auto border border-light-border dark:border-dark-border">
+            <div className="sticky top-0 bg-light-border dark:bg-dark-border px-6 py-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <LogLevelBadge level={selectedDebugLog.level} />
+                <h3 className="text-lg font-bold text-light-text dark:text-dark-text">{selectedDebugLog.source}</h3>
+              </div>
+              <button
+                onClick={() => setSelectedDebugLog(null)}
+                className="text-light-textMuted dark:text-dark-textMuted hover:text-light-text dark:hover:text-dark-text text-2xl"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {/* Timestamp */}
+              <div>
+                <p className="text-xs text-light-textMuted dark:text-dark-textMuted uppercase tracking-wide font-semibold mb-1">Timestamp</p>
+                <p className="text-sm text-light-text dark:text-dark-text font-mono">{formatTs(selectedDebugLog.createdAt)}</p>
+              </div>
+
+              {/* Stage */}
+              <div>
+                <p className="text-xs text-light-textMuted dark:text-dark-textMuted uppercase tracking-wide font-semibold mb-1">Stage</p>
+                <p className="text-sm text-light-text dark:text-dark-text font-mono bg-light-bg dark:bg-dark-bg px-3 py-2 rounded inline-block">{selectedDebugLog.stage}</p>
+              </div>
+
+              {/* Run ID */}
+              {selectedDebugLog.runId && (
+                <div>
+                  <p className="text-xs text-light-textMuted dark:text-dark-textMuted uppercase tracking-wide font-semibold mb-1">Run ID</p>
+                  <p className="text-sm text-light-text dark:text-dark-text font-mono bg-light-bg dark:bg-dark-bg px-3 py-2 rounded break-all">{selectedDebugLog.runId}</p>
+                </div>
+              )}
+
+              {/* User ID */}
+              {selectedDebugLog.userId && (
+                <div>
+                  <p className="text-xs text-light-textMuted dark:text-dark-textMuted uppercase tracking-wide font-semibold mb-1">User ID</p>
+                  <p className="text-sm text-light-text dark:text-dark-text font-mono bg-light-bg dark:bg-dark-bg px-3 py-2 rounded break-all">{selectedDebugLog.userId}</p>
+                </div>
+              )}
+
+              {/* Message */}
+              <div>
+                <p className="text-xs text-light-textMuted dark:text-dark-textMuted uppercase tracking-wide font-semibold mb-1">Message</p>
+                <p className="text-sm text-light-text dark:text-dark-text bg-light-bg dark:bg-dark-bg px-3 py-2 rounded whitespace-pre-wrap break-words">{selectedDebugLog.message}</p>
+              </div>
+
+              {/* Details */}
+              {selectedDebugLog.details && Object.keys(selectedDebugLog.details).length > 0 && (
+                <div>
+                  <p className="text-xs text-light-textMuted dark:text-dark-textMuted uppercase tracking-wide font-semibold mb-1">Details</p>
+                  <pre className="text-xs bg-slate-900 dark:bg-slate-950 text-slate-100 p-3 rounded overflow-auto max-h-64">
+                    {JSON.stringify(selectedDebugLog.details, null, 2)}
+                  </pre>
+                </div>
+              )}
+            </div>
+
+            <div className="sticky bottom-0 bg-light-border dark:bg-dark-border px-6 py-3 flex gap-2">
+              <button
+                onClick={() => setSelectedDebugLog(null)}
+                className="flex-1 px-4 py-2 rounded-lg bg-light-bg dark:bg-dark-bg text-light-text dark:text-dark-text hover:bg-light-border dark:hover:bg-dark-border font-semibold transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ─── Activate L2 Modal ──────────────────────────────────────────────── */}
       {activateModalOpen && (
