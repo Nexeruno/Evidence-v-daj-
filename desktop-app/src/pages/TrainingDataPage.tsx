@@ -77,6 +77,7 @@ export function TrainingDataPage() {
   const [error, setError] = useState<string | null>(null)
   const [predictionsError, setPredictionsError] = useState<string | null>(null)
   const [approvingId, setApprovingId] = useState<string | null>(null)
+  const [restoringId, setRestoringId] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
   // Filter states for Raw Transactions
@@ -258,6 +259,38 @@ export function TrainingDataPage() {
       alert(`Error: ${err instanceof Error ? err.message : 'Failed to approve'}`)
     } finally {
       setApprovingId(null)
+    }
+  }
+
+  const handleRestoreRecord = async (record: TrainingDataRecord) => {
+    setRestoringId(record.id)
+    try {
+      const token = await getIdToken()
+      if (!window.ipcApi) throw new Error('IPC API not available')
+
+      const result = await window.ipcApi.callCloudFunction(
+        'adminRestoreTrainingRecordToLearning',
+        token,
+        { recordId: record.id }
+      )
+
+      if (result?.ok) {
+        setSuccessMessage(`✅ Record restored: ${record.month} (${record.type === 'l2_manual_feedback' ? 'Manual' : 'Auto'})`)
+        // Update local state to remove excluded status
+        setTrainingData(trainingData.map(td =>
+          td.id === record.id
+            ? { ...td, excludedFromLearning: false, excludedAt: undefined, excludedBy: undefined, exclusionReason: undefined }
+            : td
+        ))
+        // Clear success message after 4 seconds
+        setTimeout(() => setSuccessMessage(null), 4000)
+      } else {
+        alert(`Error: ${result?.error || 'Failed to restore record'}`)
+      }
+    } catch (err) {
+      alert(`Error: ${err instanceof Error ? err.message : 'Failed to restore'}`)
+    } finally {
+      setRestoringId(null)
     }
   }
 
@@ -563,32 +596,43 @@ export function TrainingDataPage() {
                     <td className="px-3 py-2 text-right font-semibold">{td.errorPercent.toFixed(1)}%</td>
                     <td className="px-3 py-2 text-xs text-light-textMuted dark:text-dark-textMuted">{td.source}</td>
                     <td className="px-3 py-2">
-                      <div className="flex items-center gap-2">
-                        {td.excludedFromLearning ? (
-                          <div className="flex flex-col gap-1">
-                            <span className="px-2 py-0.5 rounded text-xs bg-yellow-200 text-yellow-800 font-semibold border border-yellow-300">
-                              ⚠️ Excluded
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-center gap-2">
+                          {td.excludedFromLearning ? (
+                            <div className="flex flex-col gap-1">
+                              <span className="px-2 py-0.5 rounded text-xs bg-yellow-200 text-yellow-800 font-semibold border border-yellow-300">
+                                ⚠️ Excluded
+                              </span>
+                              <span className="text-xs text-yellow-700 dark:text-yellow-400 italic">
+                                Not used for learning
+                              </span>
+                            </div>
+                          ) : td.status === 'approved' ? (
+                            <span className="px-2 py-0.5 rounded text-xs bg-green-100 text-green-700 font-semibold">
+                              ✓ Approved
                             </span>
-                            <span className="text-xs text-yellow-700 dark:text-yellow-400 italic">
-                              Not used for learning
+                          ) : (
+                            <span className="px-2 py-0.5 rounded text-xs bg-orange-100 text-orange-700 font-semibold">
+                              ⏳ Pending
                             </span>
-                          </div>
-                        ) : td.status === 'approved' ? (
-                          <span className="px-2 py-0.5 rounded text-xs bg-green-100 text-green-700 font-semibold">
-                            ✓ Approved
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded text-xs bg-orange-100 text-orange-700 font-semibold">
-                            ⏳ Pending
-                          </span>
-                        )}
-                        {isAdmin && !td.excludedFromLearning && td.status !== 'approved' && (
+                          )}
+                          {isAdmin && !td.excludedFromLearning && td.status !== 'approved' && (
+                            <button
+                              onClick={() => handleApproveRecord(td)}
+                              disabled={approvingId === td.id}
+                              className="px-2 py-0.5 rounded text-xs bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 transition-colors whitespace-nowrap"
+                            >
+                              {approvingId === td.id ? 'Approving...' : 'Approve'}
+                            </button>
+                          )}
+                        </div>
+                        {isAdmin && td.excludedFromLearning && (
                           <button
-                            onClick={() => handleApproveRecord(td)}
-                            disabled={approvingId === td.id}
-                            className="px-2 py-0.5 rounded text-xs bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 transition-colors whitespace-nowrap"
+                            onClick={() => handleRestoreRecord(td)}
+                            disabled={restoringId === td.id}
+                            className="px-2 py-0.5 rounded text-xs bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors whitespace-nowrap self-start"
                           >
-                            {approvingId === td.id ? 'Approving...' : 'Approve'}
+                            {restoringId === td.id ? 'Restoring...' : 'Restore to learning'}
                           </button>
                         )}
                       </div>

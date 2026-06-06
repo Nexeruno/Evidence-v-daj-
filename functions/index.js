@@ -4566,6 +4566,55 @@ exports.adminExcludeTrainingRecordFromLearning = functions.region(REGION).https.
   });
 });
 
+// Restore a training record to learning (admin only)
+exports.adminRestoreTrainingRecordToLearning = functions.region(REGION).https.onRequest(async (req, res) => {
+  cors(req, res, async () => {
+    try {
+      const auth = req.header('authorization')?.replace('Bearer ', '');
+      if (!auth) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+
+      const decodedToken = await admin.auth().verifyIdToken(auth);
+      const userDoc = await db.collection('users').doc(decodedToken.uid).get();
+      const userRole = userDoc.data()?.role;
+
+      if (!['admin', 'ml_admin'].includes(userRole)) {
+        return res.status(403).json({ ok: false, error: 'Forbidden: only admin/ml_admin can restore records' });
+      }
+
+      const { recordId } = req.body;
+      if (!recordId) return res.status(400).json({ ok: false, error: 'recordId required' });
+
+      const recordDoc = await db.collection('trainingData').doc(recordId).get();
+      if (!recordDoc.exists) {
+        return res.status(404).json({ ok: false, error: 'Record not found' });
+      }
+
+      const recordData = recordDoc.data();
+
+      await db.collection('trainingData').doc(recordId).update({
+        excludedFromLearning: false,
+        excludedAt: admin.firestore.FieldValue.delete(),
+        excludedBy: admin.firestore.FieldValue.delete(),
+        exclusionReason: admin.firestore.FieldValue.delete(),
+      });
+
+      logger.info(`[RESTORE_TRAINING] Restored ${recordData?.type} record ${recordId} for user ${recordData?.userId} to learning`);
+
+      res.status(200).json({
+        ok: true,
+        recordId,
+        type: recordData?.type,
+        userId: recordData?.userId,
+        month: recordData?.month,
+        message: 'Record restored to learning'
+      });
+    } catch (err) {
+      logger.error('adminRestoreTrainingRecordToLearning error:', err);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+});
+
 // Exclude an ML prediction from learning without deleting it (admin only)
 exports.adminExcludeMlPredictionFromLearning = functions.region(REGION).https.onRequest(async (req, res) => {
   cors(req, res, async () => {
