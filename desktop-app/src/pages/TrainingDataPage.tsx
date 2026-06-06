@@ -543,7 +543,14 @@ export function TrainingDataPage() {
               </thead>
               <tbody>
                 {trainingData.map(td => (
-                  <tr key={td.id} className="border-b border-light-border dark:border-dark-border hover:bg-light-border dark:hover:bg-dark-border/50">
+                  <tr
+                    key={td.id}
+                    className={`border-b border-light-border dark:border-dark-border ${
+                      td.excludedFromLearning
+                        ? 'bg-yellow-50 dark:bg-yellow-950/20 hover:bg-yellow-100 dark:hover:bg-yellow-950/30'
+                        : 'hover:bg-light-border dark:hover:bg-dark-border/50'
+                    }`}
+                  >
                     <td className="px-3 py-2 font-semibold">
                       <span className={`px-2 py-0.5 rounded text-xs ${td.type === 'l2_manual_feedback' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>
                         {td.type === 'l2_manual_feedback' ? '👤 Manual' : '🤖 Auto'}
@@ -558,9 +565,14 @@ export function TrainingDataPage() {
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-2">
                         {td.excludedFromLearning ? (
-                          <span className="px-2 py-0.5 rounded text-xs bg-yellow-100 text-yellow-700 font-semibold">
-                            ⚠️ Excluded
-                          </span>
+                          <div className="flex flex-col gap-1">
+                            <span className="px-2 py-0.5 rounded text-xs bg-yellow-200 text-yellow-800 font-semibold border border-yellow-300">
+                              ⚠️ Excluded
+                            </span>
+                            <span className="text-xs text-yellow-700 dark:text-yellow-400 italic">
+                              Not used for learning
+                            </span>
+                          </div>
                         ) : td.status === 'approved' ? (
                           <span className="px-2 py-0.5 rounded text-xs bg-green-100 text-green-700 font-semibold">
                             ✓ Approved
