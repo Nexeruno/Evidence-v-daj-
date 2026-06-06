@@ -2488,8 +2488,14 @@ exports.adminGetTrainingData = functions
         }
 
         if (approved !== undefined && approved !== 'all') {
-          const approvedBool = approved === 'true' || approved === true;
-          query = query.where('approved', '==', approvedBool);
+          // Filter by status field (works for both manual training data and L2 feedback)
+          // 'true' means status='approved', 'false' means status='rejected' or pending
+          const isApproved = approved === 'true' || approved === true;
+          if (isApproved) {
+            query = query.where('status', '==', 'approved');
+          } else {
+            query = query.where('status', '!=', 'approved');
+          }
         }
 
         // Only add orderBy when no compound where (avoids index requirement)
@@ -4386,8 +4392,9 @@ exports.adminCreateL2TrainingFeedback = functions.region(REGION).https.onRequest
       errorPercent: Math.round(errorPercent * 10) / 10,
       correctedCategories: correctedCategories || {},
       note: note || '',
-      // Metadata
+      // Metadata & Approval
       source: 'manual_admin_feedback',
+      approved: true, // For consistency with training data records
       status: 'approved', // Auto-approved by admin
       createdBy: decodedToken.uid,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -4757,6 +4764,7 @@ exports.adminGenerateL2AutoFeedback = functions.region(REGION).https.onRequest(a
           errorAmount: Math.round(errorAmount),
           errorPercent: Math.round(errorPercent * 10) / 10,
           source: 'auto_monthly_actuals',
+          approved: true, // For consistency with training data records
           status: 'approved',
           createdBy: 'system',
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
