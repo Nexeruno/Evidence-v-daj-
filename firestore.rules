@@ -62,6 +62,7 @@ service cloud.firestore {
       }
     }
 
+
     // Training Data — admin/ml_admin čte vše, CF píše
     match /trainingData/{document=**} {
       allow read: if isAdmin(request.auth.uid);
