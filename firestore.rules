@@ -2,14 +2,15 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     // Helper - check custom claims only (no DB read to avoid cycles)
+    // Backend sets custom claims as { role: 'admin' | 'ml_admin' }
     function isAdminByCustomClaims() {
-      return request.auth.token.admin == true;
+      return request.auth.token.role in ['admin', 'ml_admin'];
     }
 
     // Helper - check admin role from custom claims or /users/{uid} (used for collectionGroup queries)
     function isAdmin(uid) {
       return uid != null && (
-        request.auth.token.admin == true ||
+        request.auth.token.role in ['admin', 'ml_admin'] ||
         (get(/databases/$(database)/documents/users/$(uid)).data.role in ['admin', 'ml_admin'])
       );
     }
