@@ -213,9 +213,12 @@ export function TrainingDataPage() {
       setL2Predictions(predictions)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to load predictions'
+      console.error('[L2_PREDICTIONS_ERROR]', msg, err)
       setPredictionsError(
         msg.includes('index') || msg.includes('requires an index')
           ? 'Firestore index missing for mlPredictions collectionGroup query. Run the shadow pipeline at least once to create predictions, then add the composite index.'
+          : msg.includes('Missing or insufficient permissions')
+          ? `Permission denied reading mlPredictions. Ensure your admin role is properly set in Firestore. Error: ${msg}`
           : msg
       )
     }
