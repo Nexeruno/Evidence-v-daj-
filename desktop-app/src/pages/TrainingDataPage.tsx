@@ -76,13 +76,6 @@ export function TrainingDataPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [predictionsError, setPredictionsError] = useState<string | null>(null)
-  const [deleteConfirm, setDeleteConfirm] = useState<TrainingDataRecord | null>(null)
-  const [deleting, setDeleting] = useState(false)
-  const [excludeConfirm, setExcludeConfirm] = useState<TrainingDataRecord | null>(null)
-  const [excludeReason, setExcludeReason] = useState('')
-  const [excluding, setExcluding] = useState(false)
-  const [approveConfirm, setApproveConfirm] = useState<TrainingDataRecord | null>(null)
-  const [approving, setApproving] = useState(false)
 
   // Filter states for Raw Transactions
   const [transactionTypeFilter, setTransactionTypeFilter] = useState<'all' | 'vydaj' | 'prijem'>('all')
@@ -184,8 +177,12 @@ export function TrainingDataPage() {
           errorAmount: Number(data.errorAmount) || 0,
           errorPercent: Number(data.errorPercent) || 0,
           source: data.source || '—',
-          status: data.status || '—',
+          status: data.status || 'pending',
           createdAt: data.createdAt,
+          excludedFromLearning: data.excludedFromLearning || false,
+          excludedAt: data.excludedAt,
+          excludedBy: data.excludedBy,
+          exclusionReason: data.exclusionReason,
         }
       })
       setTrainingData(feedbackRecords)
@@ -230,93 +227,6 @@ export function TrainingDataPage() {
     }
 
     setLoading(false)
-  }
-
-  const handleDeleteTrainingRecord = async (record: TrainingDataRecord) => {
-    setDeleting(true)
-    try {
-      const token = await getIdToken()
-      if (!window.ipcApi) throw new Error('IPC API not available')
-
-      const result = await window.ipcApi.callCloudFunction(
-        'adminDeleteTrainingDataRecord',
-        token,
-        { recordId: record.id }
-      )
-
-      if (result?.ok) {
-        // Remove from UI immediately
-        setTrainingData(trainingData.filter(td => td.id !== record.id))
-        setDeleteConfirm(null)
-      } else {
-        alert(`Error: ${result?.error || 'Failed to delete record'}`)
-      }
-    } catch (err) {
-      alert(`Error: ${err instanceof Error ? err.message : 'Failed to delete'}`)
-    } finally {
-      setDeleting(false)
-    }
-  }
-
-  const handleExcludeTrainingRecord = async (record: TrainingDataRecord) => {
-    setExcluding(true)
-    try {
-      const token = await getIdToken()
-      if (!window.ipcApi) throw new Error('IPC API not available')
-
-      const result = await window.ipcApi.callCloudFunction(
-        'adminExcludeTrainingRecordFromLearning',
-        token,
-        { recordId: record.id, reason: excludeReason }
-      )
-
-      if (result?.ok) {
-        // Update UI - mark as excluded
-        setTrainingData(trainingData.map(td =>
-          td.id === record.id
-            ? { ...td, excludedFromLearning: true, excludedAt: new Date(), excludedBy: 'current_user', exclusionReason: excludeReason }
-            : td
-        ))
-        setExcludeConfirm(null)
-        setExcludeReason('')
-      } else {
-        alert(`Error: ${result?.error || 'Failed to exclude record'}`)
-      }
-    } catch (err) {
-      alert(`Error: ${err instanceof Error ? err.message : 'Failed to exclude'}`)
-    } finally {
-      setExcluding(false)
-    }
-  }
-
-  const handleApproveTrainingRecord = async (record: TrainingDataRecord) => {
-    setApproving(true)
-    try {
-      const token = await getIdToken()
-      if (!window.ipcApi) throw new Error('IPC API not available')
-
-      const result = await window.ipcApi.callCloudFunction(
-        'adminApproveTrainingData',
-        token,
-        { id: record.id, approved: true }
-      )
-
-      if (result?.ok) {
-        // Update UI - mark as approved
-        setTrainingData(trainingData.map(td =>
-          td.id === record.id
-            ? { ...td, status: 'approved' }
-            : td
-        ))
-        setApproveConfirm(null)
-      } else {
-        alert(`Error: ${result?.error || 'Failed to approve record'}`)
-      }
-    } catch (err) {
-      alert(`Error: ${err instanceof Error ? err.message : 'Failed to approve'}`)
-    } finally {
-      setApproving(false)
-    }
   }
 
   const validateTransaction = (data: any): boolean => {
@@ -590,8 +500,7 @@ export function TrainingDataPage() {
                   <th className="px-3 py-2 text-right">Actual</th>
                   <th className="px-3 py-2 text-right">Error %</th>
                   <th className="px-3 py-2 text-left">Source</th>
-                  <th className="px-3 py-2 text-left">Status</th>
-                  <th className="px-3 py-2 text-center">Actions</th>
+                  <th className="px-3 py-2 text-left">Approval Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -609,50 +518,19 @@ export function TrainingDataPage() {
                     <td className="px-3 py-2 text-right font-semibold">{td.errorPercent.toFixed(1)}%</td>
                     <td className="px-3 py-2 text-xs text-light-textMuted dark:text-dark-textMuted">{td.source}</td>
                     <td className="px-3 py-2">
-                      <div className="flex items-center gap-2">
-                        {td.excludedFromLearning ? (
-                          <span className="px-2 py-0.5 rounded text-xs bg-yellow-100 text-yellow-700 font-semibold">
-                            ⚠️ Excluded
-                          </span>
-                        ) : td.status === 'approved' ? (
-                          <span className="px-2 py-0.5 rounded text-xs bg-green-100 text-green-700 font-semibold">
-                            ✓ Approved
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded text-xs bg-orange-100 text-orange-700 font-semibold">
-                            ⏳ Pending
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2">
-                      <div className="flex gap-1 justify-end flex-wrap">
-                        {!td.excludedFromLearning && td.status !== 'approved' && (
-                          <button
-                            onClick={() => setApproveConfirm(td)}
-                            className="px-2 py-1 text-xs rounded bg-green-100 text-green-700 hover:bg-green-200 transition-colors"
-                            title="Approve record for learning"
-                          >
-                            Approve
-                          </button>
-                        )}
-                        {!td.excludedFromLearning && (
-                          <button
-                            onClick={() => setExcludeConfirm(td)}
-                            className="px-2 py-1 text-xs rounded bg-yellow-100 text-yellow-700 hover:bg-yellow-200 transition-colors"
-                            title="Exclude from learning (soft cleanup)"
-                          >
-                            Exclude
-                          </button>
-                        )}
-                        <button
-                          onClick={() => setDeleteConfirm(td)}
-                          className="px-2 py-1 text-xs rounded bg-red-100 text-red-700 hover:bg-red-200 transition-colors"
-                          title="Permanently delete"
-                        >
-                          Delete
-                        </button>
-                      </div>
+                      {td.excludedFromLearning ? (
+                        <span className="px-2 py-0.5 rounded text-xs bg-yellow-100 text-yellow-700 font-semibold">
+                          ⚠️ Excluded
+                        </span>
+                      ) : td.status === 'approved' ? (
+                        <span className="px-2 py-0.5 rounded text-xs bg-green-100 text-green-700 font-semibold">
+                          ✓ Approved
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded text-xs bg-orange-100 text-orange-700 font-semibold">
+                          ⏳ Pending
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -720,138 +598,6 @@ export function TrainingDataPage() {
         )}
       </div>
 
-      {/* Approve confirmation modal */}
-      {approveConfirm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-light-bg dark:bg-dark-bg rounded-lg shadow-lg max-w-sm w-full p-6 space-y-4">
-            <h3 className="text-lg font-bold text-light-text dark:text-dark-text">Approve Training Record?</h3>
-            <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded p-3 space-y-2 text-sm">
-              <p className="text-light-text dark:text-dark-text">
-                <strong>Type:</strong> {approveConfirm.type === 'l2_manual_feedback' ? '👤 Manual Feedback' : '🤖 Auto Feedback'}
-              </p>
-              <p className="text-light-text dark:text-dark-text">
-                <strong>Month:</strong> {approveConfirm.month}
-              </p>
-              <p className="text-light-text dark:text-dark-text">
-                <strong>User:</strong> {approveConfirm.userId.slice(0, 12)}...
-              </p>
-              <p className="text-light-text dark:text-dark-text">
-                <strong>Error:</strong> {approveConfirm.errorPercent.toFixed(1)}%
-              </p>
-              <p className="text-green-700 dark:text-green-300 mt-3 text-xs">
-                This record will be used for AI learning and correction factor calculation.
-              </p>
-            </div>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setApproveConfirm(null)}
-                className="flex-1 px-4 py-2 rounded-lg border border-light-border dark:border-dark-border text-light-text dark:text-dark-text hover:bg-light-border dark:hover:bg-dark-border transition-colors"
-                disabled={approving}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => handleApproveTrainingRecord(approveConfirm)}
-                className="flex-1 px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 transition-colors disabled:opacity-50"
-                disabled={approving}
-              >
-                {approving ? 'Approving...' : 'Approve'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Exclude confirmation modal */}
-      {excludeConfirm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-light-bg dark:bg-dark-bg rounded-lg shadow-lg max-w-sm w-full p-6 space-y-4">
-            <h3 className="text-lg font-bold text-light-text dark:text-dark-text">Exclude from Learning?</h3>
-            <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded p-3 space-y-2 text-sm">
-              <p className="text-light-text dark:text-dark-text">
-                <strong>Type:</strong> {excludeConfirm.type === 'l2_manual_feedback' ? '👤 Manual Feedback' : '🤖 Auto Feedback'}
-              </p>
-              <p className="text-light-text dark:text-dark-text">
-                <strong>Month:</strong> {excludeConfirm.month}
-              </p>
-              <p className="text-light-text dark:text-dark-text">
-                <strong>User:</strong> {excludeConfirm.userId.slice(0, 12)}...
-              </p>
-              <p className="text-yellow-700 dark:text-yellow-300 mt-3 text-xs">
-                This record will stay in the database, but will no longer be used for AI learning.
-              </p>
-              <div className="mt-3">
-                <label className="text-xs text-light-text dark:text-dark-text font-semibold">Optional reason:</label>
-                <input
-                  type="text"
-                  value={excludeReason}
-                  onChange={(e) => setExcludeReason(e.target.value)}
-                  placeholder="e.g., data anomaly, user error"
-                  className="w-full mt-1 px-2 py-1 rounded border border-light-border dark:border-dark-border bg-light-bg dark:bg-dark-bg text-sm text-light-text dark:text-dark-text"
-                />
-              </div>
-            </div>
-            <div className="flex gap-3">
-              <button
-                onClick={() => {
-                  setExcludeConfirm(null)
-                  setExcludeReason('')
-                }}
-                className="flex-1 px-4 py-2 rounded-lg border border-light-border dark:border-dark-border text-light-text dark:text-dark-text hover:bg-light-border dark:hover:bg-dark-border transition-colors"
-                disabled={excluding}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => handleExcludeTrainingRecord(excludeConfirm)}
-                className="flex-1 px-4 py-2 rounded-lg bg-yellow-600 text-white hover:bg-yellow-700 transition-colors disabled:opacity-50"
-                disabled={excluding}
-              >
-                {excluding ? 'Excluding...' : 'Exclude'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete confirmation modal */}
-      {deleteConfirm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-light-bg dark:bg-dark-bg rounded-lg shadow-lg max-w-sm w-full p-6 space-y-4">
-            <h3 className="text-lg font-bold text-light-text dark:text-dark-text">Delete Feedback Record?</h3>
-            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded p-3 space-y-2 text-sm">
-              <p className="text-light-text dark:text-dark-text">
-                <strong>Type:</strong> {deleteConfirm.type === 'l2_manual_feedback' ? '👤 Manual Feedback' : '🤖 Auto Feedback'}
-              </p>
-              <p className="text-light-text dark:text-dark-text">
-                <strong>Month:</strong> {deleteConfirm.month}
-              </p>
-              <p className="text-light-text dark:text-dark-text">
-                <strong>User:</strong> {deleteConfirm.userId.slice(0, 12)}...
-              </p>
-              <p className="text-red-700 dark:text-red-300 mt-3 text-xs">
-                This will permanently remove it from the database.
-              </p>
-            </div>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setDeleteConfirm(null)}
-                className="flex-1 px-4 py-2 rounded-lg border border-light-border dark:border-dark-border text-light-text dark:text-dark-text hover:bg-light-border dark:hover:bg-dark-border transition-colors"
-                disabled={deleting}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => handleDeleteTrainingRecord(deleteConfirm)}
-                className="flex-1 px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50"
-                disabled={deleting}
-              >
-                {deleting ? 'Deleting...' : 'Delete'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
