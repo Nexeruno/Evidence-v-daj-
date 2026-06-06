@@ -79,6 +79,7 @@ export function TrainingDataPage() {
   const [approvingId, setApprovingId] = useState<string | null>(null)
   const [restoringId, setRestoringId] = useState<string | null>(null)
   const [excludingId, setExcludingId] = useState<string | null>(null)
+  const [excludeConfirm, setExcludeConfirm] = useState<TrainingDataRecord | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
   // Filter states for Raw Transactions
@@ -295,7 +296,11 @@ export function TrainingDataPage() {
     }
   }
 
-  const handleExcludeRecord = async (record: TrainingDataRecord) => {
+  const handleExcludeRecord = (record: TrainingDataRecord) => {
+    setExcludeConfirm(record)
+  }
+
+  const confirmExcludeRecord = async (record: TrainingDataRecord) => {
     setExcludingId(record.id)
     try {
       const token = await getIdToken()
@@ -317,6 +322,7 @@ export function TrainingDataPage() {
         ))
         // Clear success message after 4 seconds
         setTimeout(() => setSuccessMessage(null), 4000)
+        setExcludeConfirm(null)
       } else {
         alert(`Error: ${result?.error || 'Failed to exclude record'}`)
       }
@@ -745,6 +751,44 @@ export function TrainingDataPage() {
         )}
       </div>
 
+      {/* Exclude confirmation modal */}
+      {excludeConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-light-bg dark:bg-dark-bg rounded-lg shadow-lg max-w-sm w-full p-6 space-y-4">
+            <h3 className="text-lg font-bold text-light-text dark:text-dark-text">Exclude from AI Learning?</h3>
+            <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded p-3 space-y-2 text-sm">
+              <p className="text-light-text dark:text-dark-text">
+                <strong>Type:</strong> {excludeConfirm.type === 'l2_manual_feedback' ? '👤 Manual Feedback' : '🤖 Auto Feedback'}
+              </p>
+              <p className="text-light-text dark:text-dark-text">
+                <strong>Month:</strong> {excludeConfirm.month}
+              </p>
+              <p className="text-light-text dark:text-dark-text">
+                <strong>Status:</strong> {excludeConfirm.status === 'approved' ? '✓ Approved' : '⏳ Pending'}
+              </p>
+              <p className="text-yellow-700 dark:text-yellow-300 mt-3 text-xs">
+                This record will stay in the database, but will no longer be used for AI learning.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setExcludeConfirm(null)}
+                className="flex-1 px-4 py-2 rounded-lg border border-light-border dark:border-dark-border text-light-text dark:text-dark-text hover:bg-light-border dark:hover:bg-dark-border transition-colors"
+                disabled={excludingId !== null}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => confirmExcludeRecord(excludeConfirm)}
+                className="flex-1 px-4 py-2 rounded-lg bg-yellow-600 text-white hover:bg-yellow-700 transition-colors disabled:opacity-50"
+                disabled={excludingId !== null}
+              >
+                {excludingId !== null ? 'Excluding...' : 'Exclude'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
