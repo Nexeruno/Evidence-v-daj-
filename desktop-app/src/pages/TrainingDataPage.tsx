@@ -92,7 +92,10 @@ export function TrainingDataPage() {
     }
 
     setError(null)
-    if (!effectiveUid) return
+    // effectiveUid can be '' (All Users) or specific uid (Single User) - both are valid
+    // effectiveUid is '' for admin in All Users mode
+    // effectiveUid is current user uid for non-admin
+    // So we just load data whenever we're admin and user is set
     loadData()
   }, [user, userRole, effectiveUid, roleLoading]) // eslint-disable-line react-hooks/exhaustive-deps
 
