@@ -3,14 +3,15 @@ import { useAuth } from '@/auth/AuthProvider'
 import { useUserRole } from '@/hooks/useUserRole'
 import { L2TrainingFeedbackModal } from '@/components/L2TrainingFeedbackModal'
 import { useAdminUserSelector, userLabel } from '@/hooks/useAdminUserSelector'
+import { SYMBOLS, formatCurrency } from '@/utils/symbols'
 
 function fmtTs(ts: any): string {
-  if (!ts) return '—'
+  if (!ts) return SYMBOLS.DASH
   try {
     if (ts.seconds != null) return new Date(ts.seconds * 1000).toLocaleString()
     if (ts._seconds != null) return new Date(ts._seconds * 1000).toLocaleString()
     return new Date(ts).toLocaleString()
-  } catch (e) { return '—' }
+  } catch (e) { return SYMBOLS.DASH }
 }
 
 interface L2ShadowPrediction {
@@ -233,8 +234,8 @@ export function MlPredictionsPage() {
         {/* Header */}
         <div className="flex flex-wrap items-start justify-between gap-2 mb-3 pb-2 border-b border-light-border dark:border-dark-border">
           <div>
-            <p className="text-xs font-mono text-light-textMuted dark:text-dark-textMuted">{pred.userId || '—'}</p>
-            <p className="text-sm font-semibold text-light-text dark:text-dark-text">{pred.month || '—'}</p>
+            <p className="text-xs font-mono text-light-textMuted dark:text-dark-textMuted">{pred.userId || SYMBOLS.DASH}</p>
+            <p className="text-sm font-semibold text-light-text dark:text-dark-text">{pred.month || SYMBOLS.DASH}</p>
           </div>
           <div className="text-right">
             <p className="text-xs text-light-textMuted dark:text-dark-textMuted">{fmtTs(pred.createdAt)}</p>
@@ -246,7 +247,7 @@ export function MlPredictionsPage() {
 
         {!hasRealExpense && (
           <div className="mb-3 px-3 py-2 rounded bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 text-xs text-amber-700 dark:text-amber-300">
-            ⚠️ Predicted amount is 0 — no active L1 prediction available when this L2 run executed. Run L1 pipeline first.
+            {SYMBOLS.WARNING} Predicted amount is 0 {SYMBOLS.DASH} no active L1 prediction available when this L2 run executed. Run L1 pipeline first.
           </div>
         )}
 
@@ -256,11 +257,11 @@ export function MlPredictionsPage() {
             <div>
               <p className="text-xs text-light-textMuted dark:text-dark-textMuted uppercase">Predicted Total</p>
               <p className={`text-lg font-bold ${hasRealExpense ? 'text-light-text dark:text-dark-text' : 'text-gray-400 dark:text-gray-600'}`}>
-                {expense != null ? `${expense.toLocaleString()} Kč` : 'Missing'}
+                {expense != null ? formatCurrency(expense) : 'Missing'}
               </p>
               {correctedAmount != null && (
                 <p className="text-xs text-green-600 dark:text-green-400 font-semibold mt-1">
-                  📊 Corrected: {correctedAmount.toLocaleString()} Kč {finalCorrFactor ? `(${finalCorrFactor.toFixed(2)}x)` : ''}
+                  {SYMBOLS.CHART} Corrected: {formatCurrency(correctedAmount)} {finalCorrFactor ? `(${finalCorrFactor.toFixed(2)}x)` : ''}
                 </p>
               )}
             </div>
@@ -269,11 +270,11 @@ export function MlPredictionsPage() {
               <div className="bg-slate-50 dark:bg-slate-800/40 rounded p-2 text-xs space-y-1">
                 <div className="flex justify-between">
                   <span className="text-light-textMuted">Base (L1):</span>
-                  <span className="font-semibold">{baseAmt > 0 ? `${baseAmt.toLocaleString()} Kč` : '0 Kč (no L1)'}</span>
+                  <span className="font-semibold">{baseAmt > 0 ? formatCurrency(baseAmt) : `0 ${SYMBOLS.CZK} (no L1)`}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-light-textMuted">Final (L2):</span>
-                  <span className="font-semibold">{finalAmt > 0 ? `${finalAmt.toLocaleString()} Kč` : '0 Kč'}</span>
+                  <span className="font-semibold">{finalAmt > 0 ? formatCurrency(finalAmt) : `0 ${SYMBOLS.CZK}`}</span>
                 </div>
               </div>
             )}
@@ -288,7 +289,7 @@ export function MlPredictionsPage() {
                     .map(([category, amount]) => (
                       <div key={category} className="flex justify-between text-xs">
                         <span className="text-blue-600 dark:text-blue-300">{category}:</span>
-                        <span className="font-semibold text-blue-700 dark:text-blue-200">{(amount as number).toLocaleString()} Kč</span>
+                        <span className="font-semibold text-blue-700 dark:text-blue-200">{formatCurrency(amount as number)}</span>
                       </div>
                     ))}
                 </div>
@@ -299,7 +300,7 @@ export function MlPredictionsPage() {
               <div>
                 <p className="text-xs text-light-textMuted dark:text-dark-textMuted uppercase">Confidence</p>
                 <p className={`text-sm font-semibold ${confScore >= 70 ? 'text-green-600 dark:text-green-400' : confScore >= 50 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-500'}`}>
-                  {confScore}% <span className="font-normal text-xs">({pred.confidence || '—'})</span>
+                  {confScore}% <span className="font-normal text-xs">({pred.confidence || SYMBOLS.DASH})</span>
                 </p>
               </div>
             )}
@@ -309,7 +310,7 @@ export function MlPredictionsPage() {
           <div className="space-y-2">
             {pred.trainingDataUsed ? (
               <div className="bg-green-100 dark:bg-green-900/30 border border-green-300 dark:border-green-700 rounded p-2">
-                <p className="text-xs font-semibold text-green-700 dark:text-green-300 mb-1">✅ Training Data Used</p>
+                <p className="text-xs font-semibold text-green-700 dark:text-green-300 mb-1">{SYMBOLS.SUCCESS} Training Data Used</p>
                 <p className="text-xs text-green-600 dark:text-green-200">
                   {trainingCount != null ? `${trainingCount} records` : 'records: ?'}
                   {corrFactor != null ? `, factor: ${corrFactor.toFixed(2)}x` : ''}
@@ -323,7 +324,7 @@ export function MlPredictionsPage() {
               <div className="bg-purple-100 dark:bg-purple-900/30 border border-purple-300 dark:border-purple-700 rounded p-2">
                 <p className="text-xs font-semibold text-purple-700 dark:text-purple-300 mb-1">🧠 AI Profile Applied</p>
                 <p className="text-xs text-purple-600 dark:text-purple-200">
-                  Adjustment: {adjFactor != null ? `${adjFactor.toFixed(2)}x` : '—'}
+                  Adjustment: {adjFactor != null ? `${adjFactor.toFixed(2)}x` : SYMBOLS.DASH}
                   {(pred.personalizedConfidenceAdjustment ?? 0) !== 0
                     ? ` (conf ${(pred.personalizedConfidenceAdjustment ?? 0) > 0 ? '+' : ''}${pred.personalizedConfidenceAdjustment}%)`
                     : ''}
@@ -341,8 +342,8 @@ export function MlPredictionsPage() {
                 : 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800'
               }`}>
                 {pred.aiProfileStatus === 'fresh' && <p className="text-green-700 dark:text-green-300">✓ AI profile fresh at prediction time</p>}
-                {pred.aiProfileStatus === 'stale' && <p className="text-amber-700 dark:text-amber-300">⚠️ AI profile was stale — confidence reduced by 5%</p>}
-                {pred.aiProfileStatus === 'missing' && <p className="text-gray-700 dark:text-gray-300">⚪ No AI profile — no personalization applied</p>}
+                {pred.aiProfileStatus === 'stale' && <p className="text-amber-700 dark:text-amber-300">{SYMBOLS.WARNING} AI profile was stale {SYMBOLS.DASH} confidence reduced by 5%</p>}
+                {pred.aiProfileStatus === 'missing' && <p className="text-gray-700 dark:text-gray-300">{SYMBOLS.YELLOW_CIRCLE} No AI profile {SYMBOLS.DASH} no personalization applied</p>}
               </div>
             )}
 
@@ -378,7 +379,7 @@ export function MlPredictionsPage() {
                     className="px-3 py-2 rounded-lg bg-yellow-600 dark:bg-yellow-700 text-white text-sm font-semibold hover:bg-yellow-700 transition-colors"
                     title="Exclude from learning (soft cleanup)"
                   >
-                    ⚠️
+                    {SYMBOLS.WARNING}
                   </button>
                 )}
                 <button
@@ -415,10 +416,10 @@ export function MlPredictionsPage() {
                 onChange={e => selectUser(e.target.value)}
                 className="flex-1 px-3 py-2 rounded border border-light-border dark:border-dark-border bg-light-bg dark:bg-dark-bg text-sm text-light-text dark:text-dark-text"
               >
-                <option value="">— All Users —</option>
+                <option value="">{SYMBOLS.DASH} All Users {SYMBOLS.DASH}</option>
                 {users.map(u => (
                   <option key={u.id} value={u.id}>
-                    {u.displayName ? `${u.displayName} — ${u.email || u.id}` : (u.email || u.id)}
+                    {u.displayName ? `${u.displayName} ${SYMBOLS.DASH} ${u.email || u.id}` : (u.email || u.id)}
                   </option>
                 ))}
               </select>
@@ -437,13 +438,13 @@ export function MlPredictionsPage() {
       <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg px-4 py-2 text-sm text-blue-700 dark:text-blue-300">
         Viewing: <strong>{isAdmin
           ? (effectiveUserId ? userLabel(selectedUser) : 'All Users (Aggregate)')
-          : (user?.displayName || user?.email || user?.uid || '—')}</strong>
+          : (user?.displayName || user?.email || user?.uid || SYMBOLS.DASH)}</strong>
       </div>
 
       {/* All Users Aggregate summary */}
       {isAdmin && !effectiveUserId && aggregateMetrics && (
         <div className="card rounded-lg p-5 border-2 border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950/30 space-y-3">
-          <h2 className="text-sm font-bold text-indigo-700 dark:text-indigo-300">📊 All Users — Aggregate Summary ({aggregateMetrics.totalPredictions} predictions)</h2>
+          <h2 className="text-sm font-bold text-indigo-700 dark:text-indigo-300">{SYMBOLS.CHART} All Users {SYMBOLS.DASH} Aggregate Summary ({aggregateMetrics.totalPredictions} predictions)</h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div className="bg-white dark:bg-dark-bg rounded p-3">
               <p className="text-xs text-light-textMuted uppercase">Total Users</p>
@@ -455,7 +456,7 @@ export function MlPredictionsPage() {
             </div>
             <div className="bg-white dark:bg-dark-bg rounded p-3">
               <p className="text-xs text-light-textMuted uppercase">Avg Confidence</p>
-              <p className="text-xl font-bold text-light-text dark:text-dark-text mt-1">{aggregateMetrics.averageConfidence > 0 ? `${aggregateMetrics.averageConfidence}%` : '—'}</p>
+              <p className="text-xl font-bold text-light-text dark:text-dark-text mt-1">{aggregateMetrics.averageConfidence > 0 ? `${aggregateMetrics.averageConfidence}%` : SYMBOLS.DASH}</p>
             </div>
             <div className="bg-white dark:bg-dark-bg rounded p-3">
               <p className="text-xs text-light-textMuted uppercase">With Training Data</p>
@@ -479,7 +480,7 @@ export function MlPredictionsPage() {
             </div>
             <div className="bg-white dark:bg-dark-bg rounded p-3">
               <p className="text-xs text-light-textMuted uppercase">Total Predicted (sum)</p>
-              <p className="text-xl font-bold text-light-text dark:text-dark-text mt-1">{aggregateMetrics.totalPredictedExpense > 0 ? `${(aggregateMetrics.totalPredictedExpense / 1000).toFixed(0)}K Kč` : '—'}</p>
+              <p className="text-xl font-bold text-light-text dark:text-dark-text mt-1">{aggregateMetrics.totalPredictedExpense > 0 ? `${(aggregateMetrics.totalPredictedExpense / 1000).toFixed(0)}K ${SYMBOLS.CZK}` : SYMBOLS.DASH}</p>
             </div>
           </div>
         </div>
@@ -509,7 +510,7 @@ export function MlPredictionsPage() {
       <div className="card rounded-lg overflow-hidden">
         <div className="overflow-x-auto">
           {error ? (
-            <div className="px-6 py-8 text-center text-red-600 dark:text-red-400">⚠️ {error}</div>
+            <div className="px-6 py-8 text-center text-red-600 dark:text-red-400">{SYMBOLS.WARNING} {error}</div>
           ) : loading ? (
             <div className="px-6 py-8 text-center text-light-textMuted dark:text-dark-textMuted">Loading predictions...</div>
           ) : predictions.length === 0 ? (
@@ -539,15 +540,15 @@ export function MlPredictionsPage() {
                     <td className="px-6 py-4 text-light-text dark:text-dark-text whitespace-nowrap text-xs">
                       {pred.createdAt?.seconds
                         ? new Date(pred.createdAt.seconds * 1000).toLocaleString()
-                        : pred.createdAt ? new Date(pred.createdAt).toLocaleString() : '—'}
+                        : pred.createdAt ? new Date(pred.createdAt).toLocaleString() : SYMBOLS.DASH}
                     </td>
-                    <td className="px-6 py-4 text-light-text dark:text-dark-text text-xs">{pred.userId || '—'}</td>
-                    <td className="px-6 py-4 text-light-text dark:text-dark-text">{pred.month || '—'}</td>
+                    <td className="px-6 py-4 text-light-text dark:text-dark-text text-xs">{pred.userId || SYMBOLS.DASH}</td>
+                    <td className="px-6 py-4 text-light-text dark:text-dark-text">{pred.month || SYMBOLS.DASH}</td>
                     <td className="px-6 py-4 text-light-text dark:text-dark-text font-semibold">
-                      {pred.totalPredictedExpense != null ? `${pred.totalPredictedExpense.toLocaleString()} Kč` : '—'}
+                      {pred.totalPredictedExpense != null ? formatCurrency(pred.totalPredictedExpense) : SYMBOLS.DASH}
                     </td>
                     <td className="px-6 py-4 text-light-text dark:text-dark-text">
-                      {pred.confidenceScore != null ? `${pred.confidenceScore}%` : pred.confidence || '—'}
+                      {pred.confidenceScore != null ? `${pred.confidenceScore}%` : pred.confidence || SYMBOLS.DASH}
                     </td>
                     <td className="px-6 py-4 text-xs text-light-textMuted dark:text-dark-textMuted">
                       {pred.modelType || (pred.isRealMlModel ? 'ML' : 'Baseline')}
@@ -578,7 +579,7 @@ export function MlPredictionsPage() {
             <p className="text-2xl font-bold text-light-text dark:text-dark-text mt-1">
               {(() => {
                 const withScore = predictions.filter((p: any) => p.confidenceScore != null)
-                if (!withScore.length) return '—'
+                if (!withScore.length) return SYMBOLS.DASH
                 const avg = withScore.reduce((s: number, p: any) => s + p.confidenceScore, 0) / withScore.length
                 return `${avg.toFixed(1)}%`
               })()}
@@ -616,7 +617,7 @@ export function MlPredictionsPage() {
                 <strong>Month:</strong> {excludeConfirm.month}
               </p>
               <p className="text-light-text dark:text-dark-text">
-                <strong>Amount:</strong> {excludeConfirm.totalPredictedExpense.toLocaleString()} Kč
+                <strong>Amount:</strong> {formatCurrency(excludeConfirm.totalPredictedExpense)}
               </p>
               <p className="text-light-text dark:text-dark-text">
                 <strong>User:</strong> {excludeConfirm.userId.slice(0, 12)}...
@@ -668,7 +669,7 @@ export function MlPredictionsPage() {
                 <strong>Month:</strong> {deleteConfirm.month}
               </p>
               <p className="text-light-text dark:text-dark-text">
-                <strong>Amount:</strong> {deleteConfirm.totalPredictedExpense.toLocaleString()} Kč
+                <strong>Amount:</strong> {formatCurrency(deleteConfirm.totalPredictedExpense)}
               </p>
               <p className="text-light-text dark:text-dark-text">
                 <strong>User:</strong> {deleteConfirm.userId.slice(0, 12)}...

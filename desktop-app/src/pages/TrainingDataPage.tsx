@@ -400,7 +400,7 @@ export function TrainingDataPage() {
       <div className="space-y-6">
         <h1 className="text-3xl font-bold text-light-text dark:text-dark-text">ML Training Data</h1>
         <div className="p-4 rounded-lg bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400">
-          ❌ Only admin/ml_admin can view training data
+          {SYMBOLS.ERROR} Only admin/ml_admin can view training data
         </div>
       </div>
     )
@@ -445,7 +445,7 @@ export function TrainingDataPage() {
 
       {statusMessage && (
         <div className={`p-4 rounded-lg text-sm ${
-          statusMessage.includes('✅') ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+          statusMessage.includes(SYMBOLS.SUCCESS) ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
         }`}>
           {statusMessage}
         </div>
@@ -453,7 +453,7 @@ export function TrainingDataPage() {
 
       {error && (
         <div className="p-4 rounded-lg bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400">
-          ❌ {error}
+          {SYMBOLS.ERROR} {error}
         </div>
       )}
 
@@ -464,7 +464,7 @@ export function TrainingDataPage() {
           <br/>
           Raw data (wydaje/prijmy) and L2 Predictions are filtered by selected user.
           <br/>
-          ℹ️ <strong>Training Feedback is GLOBAL</strong> - same for all users, independent of user selection.
+          {SYMBOLS.INFO} <strong>Training Feedback is GLOBAL</strong> - same for all users, independent of user selection.
           <br/>
           📌 <strong>Note:</strong> L2 is simplified baseline with manual/auto calibration. Not actual Python ML model yet.
         </p>
@@ -529,7 +529,7 @@ export function TrainingDataPage() {
               onClick={() => setValidOnlyFilter(!validOnlyFilter)}
               className={`px-3 py-1 rounded text-sm ${validOnlyFilter ? 'bg-blue-600 text-white' : 'bg-light-border dark:bg-dark-border'}`}
             >
-              ✅ Valid only
+              {SYMBOLS.SUCCESS} Valid only
             </button>
           </div>
           <div className="flex flex-wrap gap-2 items-center">
@@ -582,7 +582,7 @@ export function TrainingDataPage() {
                     <td className="px-3 py-2 max-w-xs truncate text-light-textMuted dark:text-dark-textMuted">{t.nazev || t.popis || '—'}</td>
                     <td className="px-3 py-2 text-right font-semibold">{t.castka.toLocaleString()} Kč</td>
                     <td className="px-3 py-2 text-center">
-                      {t.mlEligible ? '✅' : '❌'}
+                      {t.mlEligible ? SYMBOLS.SUCCESS : SYMBOLS.ERROR}
                     </td>
                     <td className="px-3 py-2 text-xs text-red-600">
                       {t.validationIssues.length > 0 ? t.validationIssues.join(', ') : '—'}
@@ -785,7 +785,7 @@ export function TrainingDataPage() {
           <div className="text-center py-8 text-light-textMuted">Loading predictions...</div>
         ) : predictionsError ? (
           <div className="p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 text-sm">
-            ⚠️ {predictionsError}
+            {SYMBOLS.WARNING} {predictionsError}
           </div>
         ) : l2Predictions.length === 0 ? (
           <div className="text-center py-8 text-light-textMuted">
@@ -845,7 +845,7 @@ export function TrainingDataPage() {
                 <strong>Month:</strong> {excludeConfirm.month}
               </p>
               <p className="text-light-text dark:text-dark-text">
-                <strong>Status:</strong> {excludeConfirm.status === 'approved' ? '✓ Approved' : '⏳ Pending'}
+                <strong>Status:</strong> {excludeConfirm.status === 'approved' ? `${SYMBOLS.SUCCESS} Approved` : `${SYMBOLS.PENDING} Pending`}
               </p>
               <p className="text-yellow-700 dark:text-yellow-300 mt-3 text-xs">
                 This record will stay in the database, but will no longer be used for AI learning.

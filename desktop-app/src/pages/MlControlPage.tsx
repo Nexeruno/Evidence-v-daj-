@@ -3,6 +3,7 @@ import { useAuth } from '@/auth/AuthProvider'
 import { useUserRole } from '@/hooks/useUserRole'
 import { useMlSystemHealth, type MlRun, type MlDebugLog } from '@/hooks/useMlSystemHealth'
 import { useMlPipelineControl, usePredictionSettings, type PredictionSettings } from '@/hooks/useMlPipelineControl'
+import { SYMBOLS, msg } from '@/utils/symbols'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -82,7 +83,7 @@ function StatBox({ label, value, sub }: { label: string; value: string | number;
 }
 
 function formatTs(ts: any): string {
-  if (ts === null || ts === undefined) return '—'
+  if (ts === null || ts === undefined) return SYMBOLS.DASH
   try {
     let d: Date
     if (typeof ts.toDate === 'function') {
@@ -97,17 +98,17 @@ function formatTs(ts: any): string {
     } else if (typeof ts === 'string' || typeof ts === 'number') {
       d = new Date(ts)
     } else {
-      return '—'
+      return SYMBOLS.DASH
     }
-    if (isNaN(d.getTime())) return '—'
+    if (isNaN(d.getTime())) return SYMBOLS.DASH
     return d.toLocaleString()
   } catch {
-    return '—'
+    return SYMBOLS.DASH
   }
 }
 
 function formatMs(ms?: number): string {
-  if (!ms) return '—'
+  if (!ms) return SYMBOLS.DASH
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`
 }
 
@@ -156,7 +157,7 @@ export function MlControlPage() {
 
       // Debug: capture what the backend actually returned
       setL2SummaryDebug(
-        `ok:${summaryResult?.ok} | hasData:${!!summaryResult?.data} | msg:${summaryResult?.message || '—'} | err:${summaryResult?.error || '—'}`
+        `ok:${summaryResult?.ok} | hasData:${!!summaryResult?.data} | msg:${summaryResult?.message || SYMBOLS.DASH} | err:${summaryResult?.error || SYMBOLS.DASH}`
       )
 
       if (summaryResult?.ok && summaryResult.data) {
@@ -209,20 +210,20 @@ export function MlControlPage() {
   // ── applySettings ────────────────────────────────────────────────────────
   const applySettings = async (next: Omit<PredictionSettings, 'updatedAt' | 'updatedBy'>, label: string) => {
     setActionLoading(true)
-    setStatusMessage(`${label}...`)
+    setStatusMessage(`${msg.loading(label).replace(SYMBOLS.LOADING + ' ', '')}...`)
     setStatusType('success')
     try {
       const token = await getIdToken()
       if (!window.ipcApi) throw new Error('IPC API not available')
       const result = await updatePredictionSettings(token, next)
       if (result?.ok !== true) throw new Error(result?.error || 'Update failed')
-      setStatusMessage(`✅ ${label} successful`)
+      setStatusMessage(msg.success(`${label} successful`))
       setStatusType('success')
       setActivateModalOpen(false)
       await reloadSettings()
       await reloadHealth()
     } catch (err) {
-      setStatusMessage(`❌ ${err instanceof Error ? err.message : 'Unknown error'}`)
+      setStatusMessage(msg.error(err instanceof Error ? err.message : 'Unknown error'))
       setStatusType('error')
     } finally {
       setActionLoading(false)
@@ -232,22 +233,22 @@ export function MlControlPage() {
   // ── runShadowPipeline ────────────────────────────────────────────────────
   const runShadowPipeline = async () => {
     setPipelineRunning(true)
-    setStatusMessage('Starting Level 2 Shadow pipeline...')
+    setStatusMessage(msg.loading('Starting Level 2 Shadow pipeline'))
     setStatusType('success')
     try {
       const token = await getIdToken()
       if (!window.ipcApi) throw new Error('IPC API not available')
       const result = await runLevel2ShadowPipeline(token)
-      if (!result?.success) throw new Error(result?.message || 'Shadow pipeline failed')
+      if (!result?.ok) throw new Error(result?.message || 'Shadow pipeline failed')
       const s = result?.summary
       setStatusMessage(
-        `✅ Shadow pipeline: ${s?.usersProcessed ?? 0} users, ${s?.predictionsCreated ?? 0} predictions` +
+        msg.success(`Shadow pipeline: ${s?.usersProcessed ?? 0} users, ${s?.predictionsCreated ?? 0} predictions`) +
         (s?.errorCount ? ` (${s.errorCount} errors → partial_success)` : '')
       )
       setStatusType('success')
       setTimeout(() => reloadHealth(), 2000)
     } catch (err) {
-      setStatusMessage(`❌ ${err instanceof Error ? err.message : 'Unknown error'}`)
+      setStatusMessage(msg.error(err instanceof Error ? err.message : 'Unknown error'))
       setStatusType('error')
     } finally {
       setPipelineRunning(false)
@@ -257,12 +258,12 @@ export function MlControlPage() {
   // ── generateAutoFeedback ─────────────────────────────────────────────────
   const handleGenerateAutoFeedback = async () => {
     if (!autoFeedbackMonth.match(/^\d{4}-\d{2}$/)) {
-      setStatusMessage('❌ Please enter month as YYYY-MM')
+      setStatusMessage(msg.error('Please enter month as YYYY-MM'))
       setStatusType('error')
       return
     }
     setAutoFeedbackLoading(true)
-    setStatusMessage(`Generating auto feedback for ${autoFeedbackMonth}...`)
+    setStatusMessage(msg.loading(`Generating auto feedback for ${autoFeedbackMonth}`))
     setStatusType('success')
     try {
       const token = await getIdToken()
@@ -270,12 +271,12 @@ export function MlControlPage() {
       const result = await generateL2AutoFeedback(token, autoFeedbackMonth)
       if (result?.ok !== true) throw new Error(result?.error || 'Failed')
       const s = result?.summary
-      setStatusMessage(`✅ Auto feedback: ${s?.feedbackCreated ?? 0} created, ${s?.feedbackSkipped ?? 0} skipped`)
+      setStatusMessage(msg.success(`Auto feedback: ${s?.feedbackCreated ?? 0} created, ${s?.feedbackSkipped ?? 0} skipped`))
       setStatusType('success')
       setAutoFeedbackMonth('')
       setTimeout(() => reloadHealth(), 2000)
     } catch (err) {
-      setStatusMessage(`❌ ${err instanceof Error ? err.message : 'Unknown error'}`)
+      setStatusMessage(msg.error(err instanceof Error ? err.message : 'Unknown error'))
       setStatusType('error')
     } finally {
       setAutoFeedbackLoading(false)
@@ -406,7 +407,7 @@ export function MlControlPage() {
       <div>
         <h1 className="text-3xl font-bold text-light-text dark:text-dark-text">ML Model Control</h1>
         <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-          ⚠️ Current L2: <strong>simplified baseline with manual/auto calibration</strong> — Real Python ML model is not active yet.
+          {SYMBOLS.WARNING} Current L2: <strong>simplified baseline with manual/auto calibration</strong> — Real Python ML model is not active yet.
         </p>
       </div>
 
@@ -423,7 +424,7 @@ export function MlControlPage() {
 
       {settingsError && (
         <div className="p-3 rounded-lg bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 text-sm flex gap-3 items-center">
-          ⚠️ Settings error: {settingsError}
+          {SYMBOLS.WARNING} Settings error: {settingsError}
           <button onClick={reloadSettings} className="underline shrink-0">Retry</button>
         </div>
       )}
@@ -437,7 +438,7 @@ export function MlControlPage() {
               disabled={loadingL2Summary}
               className="px-3 py-1 rounded text-xs bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-300 font-semibold"
             >
-              🔄 Refresh
+              Refresh
             </button>
           </div>
           {loadingL2Summary ? (
@@ -482,10 +483,10 @@ export function MlControlPage() {
             : 'bg-slate-50 dark:bg-slate-800/40 border-slate-300 dark:border-slate-600'
         }`}>
           <span className="text-2xl select-none shrink-0 mt-0.5">
-            {trendAssessment.status === 'improving' ? '✅'
-              : trendAssessment.status === 'needs_attention' ? '⚠️'
-              : trendAssessment.status === 'insufficient_data' ? '📊'
-              : '➡️'}
+            {trendAssessment.status === 'improving' ? SYMBOLS.SUCCESS
+              : trendAssessment.status === 'needs_attention' ? SYMBOLS.WARNING
+              : trendAssessment.status === 'insufficient_data' ? SYMBOLS.CHART
+              : SYMBOLS.ARROW_RIGHT}
           </span>
           <div className="flex-1 min-w-0">
             <p className={`font-bold text-sm ${
@@ -542,33 +543,33 @@ export function MlControlPage() {
                         {run.startedAt
                           ? new Date(run.startedAt.seconds ? run.startedAt.seconds * 1000 : run.startedAt)
                               .toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-                          : '—'}
+                          : SYMBOLS.DASH}
                       </td>
                       <td className="py-2 px-2"><StatusBadge status={run.status} /></td>
                       <td className="py-2 px-2 text-right font-semibold">{run.predictionsCreated}</td>
                       <td className="py-2 px-2 text-right">
-                        <span>{run.averageConfidence.toFixed(1)}%</span>
+                        <span>{run.averageConfidence != null ? `${run.averageConfidence.toFixed(1)}%` : SYMBOLS.DASH}</span>
                         {run.confidenceDelta !== null && (
                           <span className={`ml-1 ${run.confidenceDelta > 0 ? 'text-green-600 dark:text-green-400' : run.confidenceDelta < 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-400'}`}>
-                            {run.confidenceDelta > 0 ? '↑' : run.confidenceDelta < 0 ? '↓' : '='}{run.confidenceDelta !== 0 ? Math.abs(run.confidenceDelta).toFixed(1) : ''}
+                            {run.confidenceDelta > 0 ? SYMBOLS.TREND_UP : run.confidenceDelta < 0 ? SYMBOLS.TREND_DOWN : SYMBOLS.TREND_STABLE}{run.confidenceDelta !== 0 ? Math.abs(run.confidenceDelta).toFixed(1) : ''}
                           </span>
                         )}
                       </td>
                       <td className="py-2 px-2 text-right">{run.personalizedPredictionCount}</td>
                       <td className="py-2 px-2 text-right">
-                        <span>{run.staleProfileCount}</span>
+                        <span>{run.staleProfileCount != null ? run.staleProfileCount : SYMBOLS.DASH}</span>
                         {run.staleDelta !== null && run.staleDelta !== 0 && (
                           <span className={`ml-1 ${run.staleDelta < 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                            {run.staleDelta > 0 ? '↑' : '↓'}
+                            {run.staleDelta > 0 ? SYMBOLS.TREND_UP : SYMBOLS.TREND_DOWN}
                           </span>
                         )}
                       </td>
-                      <td className="py-2 px-2 text-right">{run.missingProfileCount}</td>
+                      <td className="py-2 px-2 text-right">{run.missingProfileCount != null ? run.missingProfileCount : SYMBOLS.DASH}</td>
                       <td className="py-2 px-2 text-right">
-                        <span>{run.fallbackPredictionCount}</span>
+                        <span>{run.fallbackPredictionCount != null ? run.fallbackPredictionCount : SYMBOLS.DASH}</span>
                         {run.fallbackDelta !== null && run.fallbackDelta !== 0 && (
                           <span className={`ml-1 ${run.fallbackDelta < 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                            {run.fallbackDelta > 0 ? '↑' : '↓'}
+                            {run.fallbackDelta > 0 ? SYMBOLS.TREND_UP : SYMBOLS.TREND_DOWN}
                           </span>
                         )}
                       </td>
@@ -590,9 +591,9 @@ export function MlControlPage() {
           <>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <StatBox label="Active Level" value={`L${settings.activePredictionLevel}`} />
-              <StatBox label="L2 Enabled" value={settings.level2Enabled ? '✅ Yes' : '❌ No'} />
-              <StatBox label="Shadow Mode" value={settings.level2ShadowMode ? '🔵 ON' : '⚫ OFF'} />
-              <StatBox label="Fallback" value={settings.fallbackEnabled ? '✅ ON' : '❌ OFF'} />
+              <StatBox label="L2 Enabled" value={settings.level2Enabled ? `${SYMBOLS.SUCCESS} Yes` : `${SYMBOLS.ERROR} No`} />
+              <StatBox label="Shadow Mode" value={settings.level2ShadowMode ? `${SYMBOLS.BLUE_CIRCLE} ON` : `${SYMBOLS.RED_CIRCLE} OFF`} />
+              <StatBox label="Fallback" value={settings.fallbackEnabled ? `${SYMBOLS.SUCCESS} ON` : `${SYMBOLS.ERROR} OFF`} />
             </div>
             <div className="flex flex-wrap gap-3 items-center pt-2 border-t border-light-border dark:border-dark-border">
               <span className="text-sm text-light-textMuted dark:text-dark-textMuted">Production Model:</span>
@@ -626,7 +627,7 @@ export function MlControlPage() {
       <SectionCard title="B. L2 Pipeline Live Status" borderColor={psBorderColor}>
         {healthError ? (
           <div className="space-y-2">
-            <p className="text-sm text-red-600 dark:text-red-400">❌ {healthError}</p>
+            <p className="text-sm text-red-600 dark:text-red-400">{SYMBOLS.ERROR} {healthError}</p>
             {healthError.includes('not deployed') && (
               <p className="text-xs text-light-textMuted dark:text-dark-textMuted">
                 Deploy Cloud Functions: <code className="bg-light-border dark:bg-dark-border px-1 rounded">firebase deploy --only functions:adminGetMlSystemHealth</code>
@@ -711,24 +712,24 @@ export function MlControlPage() {
                   if (!result?.ok) throw new Error(result?.error || 'L1 pipeline failed')
                   const s = result?.summary
                   setStatusMessage(
-                    `✅ L1 pipeline: ${s?.usersProcessed ?? 0} users, ${s?.predictionsCreated ?? 0} predictions`
+                    `${SYMBOLS.SUCCESS} L1 pipeline: ${s?.usersProcessed ?? 0} users, ${s?.predictionsCreated ?? 0} predictions`
                   )
                   setStatusType('success')
                   setTimeout(() => reloadHealth(), 2000)
                 } catch (err) {
-                  setStatusMessage(`❌ ${err instanceof Error ? err.message : 'Unknown error'}`)
+                  setStatusMessage(msg.error(`${err instanceof Error ? err.message : 'Unknown error'}`))
                   setStatusType('error')
                 } finally {
                   setPipelineRunning(false)
                 }
               }}
-              label={pipelineRunning ? '⏳ Running...' : '▶️ Run L1 Pipeline'}
+              label={pipelineRunning ? `${SYMBOLS.LOADING} Running...` : `▶️ Run L1 Pipeline`}
               variant="primary"
               disabled={pipelineRunning}
             />
             <Btn
               onClick={runShadowPipeline}
-              label={pipelineRunning ? '⏳ Running...' : '▶️ Run L2 Shadow Pipeline'}
+              label={pipelineRunning ? `${SYMBOLS.LOADING} Running...` : `▶️ Run L2 Shadow Pipeline`}
               variant="secondary"
               disabled={pipelineRunning}
             />
@@ -752,7 +753,7 @@ export function MlControlPage() {
                 </div>
                 <Btn
                   onClick={handleGenerateAutoFeedback}
-                  label={autoFeedbackLoading ? '⏳ Generating...' : '🤖 Generate Auto Feedback'}
+                  label={autoFeedbackLoading ? `${SYMBOLS.LOADING} Generating...` : `${SYMBOLS.AUTO} Generate Auto Feedback`}
                   variant="secondary"
                   disabled={autoFeedbackLoading || !autoFeedbackMonth}
                 />
@@ -883,7 +884,7 @@ export function MlControlPage() {
         </div>
 
         {healthError ? (
-          <p className="text-sm text-red-600 dark:text-red-400 mt-3">❌ {healthError}</p>
+          <p className="text-sm text-red-600 dark:text-red-400 mt-3">{SYMBOLS.ERROR} {healthError}</p>
         ) : allLogs.length === 0 ? (
           <p className="text-sm text-light-textMuted dark:text-dark-textMuted mt-3">No debug logs yet. Logs will appear here when the pipeline runs.</p>
         ) : filteredLogs.length === 0 ? (
@@ -926,18 +927,18 @@ export function MlControlPage() {
       <SectionCard title="System Health">
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           <StatBox label="Firebase Project"    value={health?.firebaseProjectId ?? 'unknown'} />
-          <StatBox label="CF Reachable"        value={healthError ? '❌ No' : health ? '✅ Yes' : '…'} />
-          <StatBox label="Firestore Readable"  value={health?.firestoreReadable ? '✅ Yes' : healthError ? '❌ Error' : '—'} />
-          <StatBox label="Firestore Writable"  value={health?.firestoreWritable ? '✅ Yes' : healthError ? '❌ Error' : '—'} />
-          <StatBox label="Settings Loaded"     value={health?.predictionSettingsExists ? '✅ Yes' : health ? '❌ Missing' : '—'} />
-          <StatBox label="Recent Errors"       value={health?.recentErrorCount ?? '—'} />
+          <StatBox label="CF Reachable"        value={healthError ? `${SYMBOLS.ERROR} No` : health ? `${SYMBOLS.SUCCESS} Yes` : '…'} />
+          <StatBox label="Firestore Readable"  value={health?.firestoreReadable ? `${SYMBOLS.SUCCESS} Yes` : healthError ? `${SYMBOLS.ERROR} Error` : SYMBOLS.DASH} />
+          <StatBox label="Firestore Writable"  value={health?.firestoreWritable ? `${SYMBOLS.SUCCESS} Yes` : healthError ? `${SYMBOLS.ERROR} Error` : SYMBOLS.DASH} />
+          <StatBox label="Settings Loaded"     value={health?.predictionSettingsExists ? `${SYMBOLS.SUCCESS} Yes` : health ? `${SYMBOLS.ERROR} Missing` : SYMBOLS.DASH} />
+          <StatBox label="Recent Errors"       value={health?.recentErrorCount ?? SYMBOLS.DASH} />
         </div>
         {healthError && (
           <div className="bg-red-50 dark:bg-red-950/20 border border-red-300 dark:border-red-700 rounded p-3 text-xs text-red-700 dark:text-red-300 space-y-1">
             <p className="font-semibold">Health check failed:</p>
             <p>{healthError}</p>
             {healthError.includes('not deployed') && (
-              <p className="mt-1 text-red-600">→ Deploy Cloud Function: <code>firebase deploy --only functions:adminGetMlSystemHealth</code></p>
+              <p className="mt-1 text-red-600">{SYMBOLS.ARROW_RIGHT} Deploy Cloud Function: <code>firebase deploy --only functions:adminGetMlSystemHealth</code></p>
             )}
           </div>
         )}
@@ -956,7 +957,7 @@ export function MlControlPage() {
                 onClick={() => setSelectedDebugLog(null)}
                 className="text-light-textMuted dark:text-dark-textMuted hover:text-light-text dark:hover:text-dark-text text-2xl"
               >
-                ✕
+                ×
               </button>
             </div>
 
@@ -1028,7 +1029,7 @@ export function MlControlPage() {
               L1 remains as fallback.
             </p>
             <p className="text-amber-600 dark:text-amber-400 text-sm mb-6">
-              ⚠️ Current L2 is a simplified baseline, not a real Python ML model.
+              {SYMBOLS.WARNING} Current L2 is a simplified baseline, not a real Python ML model.
             </p>
             <div className="flex gap-3">
               <button onClick={() => setActivateModalOpen(false)} className="flex-1 px-4 py-2 border border-light-border dark:border-dark-border rounded-lg text-light-text dark:text-dark-text font-semibold">
