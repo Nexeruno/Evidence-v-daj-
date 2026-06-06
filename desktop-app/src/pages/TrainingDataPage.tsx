@@ -76,6 +76,8 @@ export function TrainingDataPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [predictionsError, setPredictionsError] = useState<string | null>(null)
+  const [approvingId, setApprovingId] = useState<string | null>(null)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
   // Filter states for Raw Transactions
   const [transactionTypeFilter, setTransactionTypeFilter] = useState<'all' | 'vydaj' | 'prijem'>('all')
@@ -227,6 +229,36 @@ export function TrainingDataPage() {
     }
 
     setLoading(false)
+  }
+
+  const handleApproveRecord = async (record: TrainingDataRecord) => {
+    setApprovingId(record.id)
+    try {
+      const token = await getIdToken()
+      if (!window.ipcApi) throw new Error('IPC API not available')
+
+      const result = await window.ipcApi.callCloudFunction(
+        'adminApproveTrainingData',
+        token,
+        { id: record.id, approved: true }
+      )
+
+      if (result?.ok) {
+        setSuccessMessage(`✅ Record approved: ${record.month} (${record.type === 'l2_manual_feedback' ? 'Manual' : 'Auto'})`)
+        // Update local state to reflect approved status
+        setTrainingData(trainingData.map(td =>
+          td.id === record.id ? { ...td, status: 'approved' } : td
+        ))
+        // Clear success message after 4 seconds
+        setTimeout(() => setSuccessMessage(null), 4000)
+      } else {
+        alert(`Error: ${result?.error || 'Failed to approve record'}`)
+      }
+    } catch (err) {
+      alert(`Error: ${err instanceof Error ? err.message : 'Failed to approve'}`)
+    } finally {
+      setApprovingId(null)
+    }
   }
 
   const validateTransaction = (data: any): boolean => {
@@ -481,6 +513,12 @@ export function TrainingDataPage() {
           L2 model learning from feedback. Manual (weight 2x) and Auto (weight 1x) for calibration.
         </p>
 
+        {successMessage && (
+          <div className="p-3 rounded-lg bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-sm">
+            {successMessage}
+          </div>
+        )}
+
         {loading ? (
           <div className="text-center py-8 text-light-textMuted">Loading feedback...</div>
         ) : trainingData.length === 0 ? (
@@ -518,19 +556,30 @@ export function TrainingDataPage() {
                     <td className="px-3 py-2 text-right font-semibold">{td.errorPercent.toFixed(1)}%</td>
                     <td className="px-3 py-2 text-xs text-light-textMuted dark:text-dark-textMuted">{td.source}</td>
                     <td className="px-3 py-2">
-                      {td.excludedFromLearning ? (
-                        <span className="px-2 py-0.5 rounded text-xs bg-yellow-100 text-yellow-700 font-semibold">
-                          ⚠️ Excluded
-                        </span>
-                      ) : td.status === 'approved' ? (
-                        <span className="px-2 py-0.5 rounded text-xs bg-green-100 text-green-700 font-semibold">
-                          ✓ Approved
-                        </span>
-                      ) : (
-                        <span className="px-2 py-0.5 rounded text-xs bg-orange-100 text-orange-700 font-semibold">
-                          ⏳ Pending
-                        </span>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {td.excludedFromLearning ? (
+                          <span className="px-2 py-0.5 rounded text-xs bg-yellow-100 text-yellow-700 font-semibold">
+                            ⚠️ Excluded
+                          </span>
+                        ) : td.status === 'approved' ? (
+                          <span className="px-2 py-0.5 rounded text-xs bg-green-100 text-green-700 font-semibold">
+                            ✓ Approved
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded text-xs bg-orange-100 text-orange-700 font-semibold">
+                            ⏳ Pending
+                          </span>
+                        )}
+                        {isAdmin && !td.excludedFromLearning && td.status !== 'approved' && (
+                          <button
+                            onClick={() => handleApproveRecord(td)}
+                            disabled={approvingId === td.id}
+                            className="px-2 py-0.5 rounded text-xs bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 transition-colors whitespace-nowrap"
+                          >
+                            {approvingId === td.id ? 'Approving...' : 'Approve'}
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
