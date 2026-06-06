@@ -2,9 +2,12 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     // Helper - kontrola admin role (admin + ml_admin)
+    // First check Firebase custom claims (faster), then fallback to /users/{uid} read
     function isAdmin(uid) {
-      return uid != null &&
-        get(/databases/$(database)/documents/users/$(uid)).data.role in ['admin', 'ml_admin'];
+      return uid != null && (
+        request.auth.token.admin == true ||
+        (get(/databases/$(database)/documents/users/$(uid)).data.role in ['admin', 'ml_admin'])
+      );
     }
 
     // Helper - admin allow read (fallback)
