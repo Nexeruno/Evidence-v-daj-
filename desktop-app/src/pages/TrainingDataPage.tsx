@@ -72,6 +72,8 @@ export function TrainingDataPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [predictionsError, setPredictionsError] = useState<string | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState<TrainingDataRecord | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   // Filter states for Raw Transactions
   const [transactionTypeFilter, setTransactionTypeFilter] = useState<'all' | 'vydaj' | 'prijem'>('all')
@@ -220,6 +222,32 @@ export function TrainingDataPage() {
     }
 
     setLoading(false)
+  }
+
+  const handleDeleteTrainingRecord = async (record: TrainingDataRecord) => {
+    setDeleting(true)
+    try {
+      const token = await getIdToken()
+      if (!window.ipcApi) throw new Error('IPC API not available')
+
+      const result = await window.ipcApi.callCloudFunction(
+        'adminDeleteTrainingDataRecord',
+        token,
+        { recordId: record.id }
+      )
+
+      if (result?.ok) {
+        // Remove from UI immediately
+        setTrainingData(trainingData.filter(td => td.id !== record.id))
+        setDeleteConfirm(null)
+      } else {
+        alert(`Error: ${result?.error || 'Failed to delete record'}`)
+      }
+    } catch (err) {
+      alert(`Error: ${err instanceof Error ? err.message : 'Failed to delete'}`)
+    } finally {
+      setDeleting(false)
+    }
   }
 
   const validateTransaction = (data: any): boolean => {
@@ -513,6 +541,14 @@ export function TrainingDataPage() {
                         {td.status}
                       </span>
                     </td>
+                    <td className="px-3 py-2 text-right">
+                      <button
+                        onClick={() => setDeleteConfirm(td)}
+                        className="px-2 py-1 text-xs rounded bg-red-100 text-red-700 hover:bg-red-200 transition-colors"
+                      >
+                        Delete
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -578,6 +614,45 @@ export function TrainingDataPage() {
           </div>
         )}
       </div>
+
+      {/* Delete confirmation modal */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-light-bg dark:bg-dark-bg rounded-lg shadow-lg max-w-sm w-full p-6 space-y-4">
+            <h3 className="text-lg font-bold text-light-text dark:text-dark-text">Delete Feedback Record?</h3>
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded p-3 space-y-2 text-sm">
+              <p className="text-light-text dark:text-dark-text">
+                <strong>Type:</strong> {deleteConfirm.type === 'l2_manual_feedback' ? '👤 Manual Feedback' : '🤖 Auto Feedback'}
+              </p>
+              <p className="text-light-text dark:text-dark-text">
+                <strong>Month:</strong> {deleteConfirm.month}
+              </p>
+              <p className="text-light-text dark:text-dark-text">
+                <strong>User:</strong> {deleteConfirm.userId.slice(0, 12)}...
+              </p>
+              <p className="text-red-700 dark:text-red-300 mt-3 text-xs">
+                This will remove it from future AI learning inputs.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                className="flex-1 px-4 py-2 rounded-lg border border-light-border dark:border-dark-border text-light-text dark:text-dark-text hover:bg-light-border dark:hover:bg-dark-border transition-colors"
+                disabled={deleting}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleDeleteTrainingRecord(deleteConfirm)}
+                className="flex-1 px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50"
+                disabled={deleting}
+              >
+                {deleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

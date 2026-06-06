@@ -4416,6 +4416,57 @@ exports.adminCreateL2TrainingFeedback = functions.region(REGION).https.onRequest
   }
 });
 
+// Delete a single trainingData feedback record (admin only)
+exports.adminDeleteTrainingDataRecord = functions.region(REGION).https.onRequest(async (req, res) => {
+  cors(req, res, async () => {
+    try {
+      const auth = req.header('authorization')?.replace('Bearer ', '');
+      if (!auth) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+
+      const decodedToken = await admin.auth().verifyIdToken(auth);
+      const userDoc = await db.collection('users').doc(decodedToken.uid).get();
+      const userRole = userDoc.data()?.role;
+
+      if (!['admin', 'ml_admin'].includes(userRole)) {
+        return res.status(403).json({ ok: false, error: 'Forbidden: only admin/ml_admin can delete records' });
+      }
+
+      const recordId = req.body?.recordId;
+      if (!recordId) return res.status(400).json({ ok: false, error: 'recordId required' });
+
+      // Get the record before deleting (for response info)
+      const recordDoc = await db.collection('trainingData').doc(recordId).get();
+      if (!recordDoc.exists) {
+        return res.status(404).json({ ok: false, error: 'Record not found' });
+      }
+
+      const recordData = recordDoc.data();
+
+      // Only allow deletion of feedback records
+      if (!['l2_manual_feedback', 'l2_auto_feedback'].includes(recordData?.type)) {
+        return res.status(400).json({ ok: false, error: 'Can only delete l2_manual_feedback or l2_auto_feedback records' });
+      }
+
+      // Delete the record
+      await db.collection('trainingData').doc(recordId).delete();
+
+      logger.info(`[DELETE_FEEDBACK] Deleted ${recordData?.type} record ${recordId} for user ${recordData?.userId}`);
+
+      res.status(200).json({
+        ok: true,
+        recordId,
+        type: recordData?.type,
+        userId: recordData?.userId,
+        month: recordData?.month,
+        message: `Feedback record deleted`
+      });
+    } catch (err) {
+      logger.error('adminDeleteTrainingDataRecord error:', err);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+});
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // AUTO LEARNING - Generate auto feedback from actual monthly expenses
 // ═══════════════════════════════════════════════════════════════════════════════
