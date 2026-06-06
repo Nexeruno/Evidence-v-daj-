@@ -81,6 +81,8 @@ export function TrainingDataPage() {
   const [excludeConfirm, setExcludeConfirm] = useState<TrainingDataRecord | null>(null)
   const [excludeReason, setExcludeReason] = useState('')
   const [excluding, setExcluding] = useState(false)
+  const [approveConfirm, setApproveConfirm] = useState<TrainingDataRecord | null>(null)
+  const [approving, setApproving] = useState(false)
 
   // Filter states for Raw Transactions
   const [transactionTypeFilter, setTransactionTypeFilter] = useState<'all' | 'vydaj' | 'prijem'>('all')
@@ -285,6 +287,36 @@ export function TrainingDataPage() {
       alert(`Error: ${err instanceof Error ? err.message : 'Failed to exclude'}`)
     } finally {
       setExcluding(false)
+    }
+  }
+
+  const handleApproveTrainingRecord = async (record: TrainingDataRecord) => {
+    setApproving(true)
+    try {
+      const token = await getIdToken()
+      if (!window.ipcApi) throw new Error('IPC API not available')
+
+      const result = await window.ipcApi.callCloudFunction(
+        'adminApproveTrainingData',
+        token,
+        { id: record.id, approved: true }
+      )
+
+      if (result?.ok) {
+        // Update UI - mark as approved
+        setTrainingData(trainingData.map(td =>
+          td.id === record.id
+            ? { ...td, status: 'approved' }
+            : td
+        ))
+        setApproveConfirm(null)
+      } else {
+        alert(`Error: ${result?.error || 'Failed to approve record'}`)
+      }
+    } catch (err) {
+      alert(`Error: ${err instanceof Error ? err.message : 'Failed to approve'}`)
+    } finally {
+      setApproving(false)
     }
   }
 
@@ -577,18 +609,32 @@ export function TrainingDataPage() {
                     <td className="px-3 py-2 text-xs text-light-textMuted dark:text-dark-textMuted">{td.source}</td>
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-2">
-                        <span className={`px-2 py-0.5 rounded text-xs ${td.status === 'approved' ? 'bg-green-100 text-green-700' : 'bg-gray-100'}`}>
-                          {td.status}
-                        </span>
-                        {td.excludedFromLearning && (
-                          <span className="px-2 py-0.5 rounded text-xs bg-yellow-100 text-yellow-700">
-                            Excluded
+                        {td.excludedFromLearning ? (
+                          <span className="px-2 py-0.5 rounded text-xs bg-yellow-100 text-yellow-700 font-semibold">
+                            ⚠️ Excluded
+                          </span>
+                        ) : td.status === 'approved' ? (
+                          <span className="px-2 py-0.5 rounded text-xs bg-green-100 text-green-700 font-semibold">
+                            ✓ Approved
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded text-xs bg-orange-100 text-orange-700 font-semibold">
+                            ⏳ Pending
                           </span>
                         )}
                       </div>
                     </td>
                     <td className="px-3 py-2">
-                      <div className="flex gap-2 justify-end">
+                      <div className="flex gap-1 justify-end flex-wrap">
+                        {!td.excludedFromLearning && td.status !== 'approved' && (
+                          <button
+                            onClick={() => setApproveConfirm(td)}
+                            className="px-2 py-1 text-xs rounded bg-green-100 text-green-700 hover:bg-green-200 transition-colors"
+                            title="Approve record for learning"
+                          >
+                            Approve
+                          </button>
+                        )}
                         {!td.excludedFromLearning && (
                           <button
                             onClick={() => setExcludeConfirm(td)}
@@ -672,6 +718,48 @@ export function TrainingDataPage() {
           </div>
         )}
       </div>
+
+      {/* Approve confirmation modal */}
+      {approveConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-light-bg dark:bg-dark-bg rounded-lg shadow-lg max-w-sm w-full p-6 space-y-4">
+            <h3 className="text-lg font-bold text-light-text dark:text-dark-text">Approve Training Record?</h3>
+            <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded p-3 space-y-2 text-sm">
+              <p className="text-light-text dark:text-dark-text">
+                <strong>Type:</strong> {approveConfirm.type === 'l2_manual_feedback' ? '👤 Manual Feedback' : '🤖 Auto Feedback'}
+              </p>
+              <p className="text-light-text dark:text-dark-text">
+                <strong>Month:</strong> {approveConfirm.month}
+              </p>
+              <p className="text-light-text dark:text-dark-text">
+                <strong>User:</strong> {approveConfirm.userId.slice(0, 12)}...
+              </p>
+              <p className="text-light-text dark:text-dark-text">
+                <strong>Error:</strong> {approveConfirm.errorPercent.toFixed(1)}%
+              </p>
+              <p className="text-green-700 dark:text-green-300 mt-3 text-xs">
+                This record will be used for AI learning and correction factor calculation.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setApproveConfirm(null)}
+                className="flex-1 px-4 py-2 rounded-lg border border-light-border dark:border-dark-border text-light-text dark:text-dark-text hover:bg-light-border dark:hover:bg-dark-border transition-colors"
+                disabled={approving}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleApproveTrainingRecord(approveConfirm)}
+                className="flex-1 px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 transition-colors disabled:opacity-50"
+                disabled={approving}
+              >
+                {approving ? 'Approving...' : 'Approve'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Exclude confirmation modal */}
       {excludeConfirm && (
