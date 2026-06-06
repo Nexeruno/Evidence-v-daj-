@@ -4892,6 +4892,7 @@ exports.adminGetMlSystemHealth = functions.region(REGION).https.onRequest(async 
       const manualSnap = await db.collection('trainingData')
         .where('type', '==', 'l2_manual_feedback')
         .where('status', '==', 'approved')
+        .where('excludedFromLearning', '!=', true)
         .get();
       manualFeedbackCount = manualSnap.size;
       if (manualSnap.size > 0) {
@@ -4904,6 +4905,7 @@ exports.adminGetMlSystemHealth = functions.region(REGION).https.onRequest(async 
       const autoSnap = await db.collection('trainingData')
         .where('type', '==', 'l2_auto_feedback')
         .where('status', '==', 'approved')
+        .where('excludedFromLearning', '!=', true)
         .get();
       autoFeedbackCount = autoSnap.size;
       if (autoSnap.size > 0) {
@@ -4995,17 +4997,19 @@ const extractUserFeatures = async (uid) => {
     const sortedExpCats = Object.entries(categoryTotals12m).sort((a, b) => b[1] - a[1]);
     const topExpenseCategories = sortedExpCats.slice(0, 3).map(e => e[0]);
 
-    // Feedback data
+    // Feedback data (excluding marked for exclusion)
     const manualFeedback = await db.collection('trainingData')
       .where('userId', '==', uid)
       .where('type', '==', 'l2_manual_feedback')
       .where('status', '==', 'approved')
+      .where('excludedFromLearning', '!=', true)
       .get();
 
     const autoFeedback = await db.collection('trainingData')
       .where('userId', '==', uid)
       .where('type', '==', 'l2_auto_feedback')
       .where('status', '==', 'approved')
+      .where('excludedFromLearning', '!=', true)
       .get();
 
     const avgManualFactor = manualFeedback.size > 0
@@ -5135,10 +5139,11 @@ const checkAiProfileStaleness = async (uid, profileGeneratedAt) => {
       staleReason.push('new_transactions_since_profile_generation');
     }
 
-    // Find last feedback record
+    // Find last feedback record (excluding marked for exclusion)
     const feedback = await db.collection('trainingData')
       .where('userId', '==', uid)
       .where('status', '==', 'approved')
+      .where('excludedFromLearning', '!=', true)
       .orderBy('createdAt', 'desc')
       .limit(1)
       .get();
@@ -5211,6 +5216,7 @@ exports.adminGenerateAiProfile = functions.region(REGION).https.onRequest(async 
       const feedback = await db.collection('trainingData')
         .where('userId', '==', targetUid)
         .where('status', '==', 'approved')
+        .where('excludedFromLearning', '!=', true)
         .orderBy('createdAt', 'desc')
         .limit(1)
         .get();
@@ -5315,6 +5321,7 @@ exports.adminGenerateAllAiProfiles = functions.region(REGION).https.onRequest(as
           const feedback = await db.collection('trainingData')
             .where('userId', '==', userDoc.id)
             .where('status', '==', 'approved')
+            .where('excludedFromLearning', '!=', true)
             .orderBy('createdAt', 'desc')
             .limit(1)
             .get();
@@ -5535,6 +5542,7 @@ exports.adminRegenerateStaleProfiles = functions.region(REGION).https.onRequest(
           const feedback = await db.collection('trainingData')
             .where('userId', '==', uid)
             .where('status', '==', 'approved')
+            .where('excludedFromLearning', '!=', true)
             .orderBy('createdAt', 'desc')
             .limit(1)
             .get();
@@ -5663,6 +5671,7 @@ exports.autoRegenerateStaleAiProfiles = functions
           const feedback = await db.collection('trainingData')
             .where('userId', '==', userDoc.id)
             .where('status', '==', 'approved')
+            .where('excludedFromLearning', '!=', true)
             .orderBy('createdAt', 'desc')
             .limit(1)
             .get();
