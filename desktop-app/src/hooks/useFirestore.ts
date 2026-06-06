@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { collection, query, where, orderBy, limit, onSnapshot, DocumentData, doc } from 'firebase/firestore'
+import { collection, query, orderBy, limit, onSnapshot, DocumentData, doc } from 'firebase/firestore'
 import { db } from '@/config/firebase'
 
 interface UseFirestoreOptions {
@@ -72,18 +72,12 @@ export function useFirestore<T extends DocumentData>(
 }
 
 export function useMlRuns(limitCount?: number) {
-  const constraints = limitCount ? [orderBy('timestamp', 'desc'), limit(limitCount)] : [orderBy('timestamp', 'desc')]
+  const constraints = limitCount ? [orderBy('startedAt', 'desc'), limit(limitCount)] : [orderBy('startedAt', 'desc')]
   return useFirestore('mlRuns', constraints)
 }
 
-export function useMlMetrics() {
-  const { data } = useFirestore('mlMetrics', [limit(1)])
-  return data[0] || null
-}
-
-export function useActiveSessions() {
-  const constraints = [where('isActive', '==', true)]
-  return useFirestore('userSessions', constraints)
+export function useAllUsers() {
+  return useFirestore('users', [])
 }
 
 export interface PredictionSettings {
@@ -148,11 +142,16 @@ export function useAppConfig() {
 
 export interface MlRun {
   id?: string
-  timestamp?: number
   startedAt?: any
-  level?: number
+  finishedAt?: any
+  pipelineLevel?: number
+  mode?: string
   status?: string
-  accuracy?: number
-  processingTime?: number
+  durationMs?: number
+  predictionsCreated?: number
+  usersProcessed?: number
+  averageConfidence?: number
+  fallbackCount?: number
+  errorCount?: number
   message?: string
 }

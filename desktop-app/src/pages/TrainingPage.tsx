@@ -4,15 +4,23 @@ import toast from 'react-hot-toast'
 
 interface TrainingDataItem {
   id: string
-  type: 'income_name' | 'expense_name' | 'category_rule' | 'qa_example'
+  type: string
   input: string
-  expectedOutput: string
-  category: string
-  tags: string[]
-  note: string
-  approved: boolean
-  createdAt: Date
-  createdBy: string
+  expectedOutput?: string
+  category?: string
+  tags?: string[]
+  note?: string
+  approved?: boolean
+  createdAt?: Date
+  createdBy?: string
+  // L2 feedback fields
+  month?: string
+  predictedTotal?: number
+  actualTotal?: number
+  errorPercent?: number
+  source?: string
+  status?: string
+  userId?: string
 }
 
 export function TrainingPage() {
@@ -27,6 +35,10 @@ export function TrainingPage() {
   const [listError, setListError] = useState<string | null>(null)
   const [filterType, setFilterType] = useState<string>('all')
   const [filterApproved, setFilterApproved] = useState<string>('all')
+
+  // Approval panel filter (separate from sidebar filter)
+  const [approvalFilter, setApprovalFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all')
+  const [approvalActionLoading, setApprovalActionLoading] = useState<string | null>(null)
 
   // Form states
   const [income, setIncome] = useState({ name: '', category: '', note: '', tags: '' })
@@ -81,16 +93,13 @@ export function TrainingPage() {
         return
       }
 
-      if (response.items && response.items.length > 0) {
-        setTrainingList(
-          response.items.map((item: any) => ({
-            ...item,
-            createdAt: item.createdAt ? new Date(item.createdAt) : new Date(),
-          }))
-        )
-      } else {
-        setTrainingList([])
-      }
+      // Backend returns { ok, items, totalCount }
+      setTrainingList(
+        (response.items ?? []).map((item: any) => ({
+          ...item,
+          createdAt: item.createdAt ? new Date(item.createdAt) : undefined,
+        }))
+      )
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to load training data'
 
@@ -105,6 +114,33 @@ export function TrainingPage() {
       console.error('loadTrainingData error:', error)
     } finally {
       setListLoading(false)
+    }
+  }
+
+  const handleApproveItem = async (id: string, approve: boolean) => {
+    try {
+      setApprovalActionLoading(id)
+      const token = await getIdToken()
+      if (!window.ipcApi) throw new Error('IPC API not available')
+      const response = await window.ipcApi.callCloudFunction('adminApproveTrainingData', token, {
+        id,
+        approved: approve,
+      })
+      if (!response.ok) throw new Error(response.error || 'Approval failed')
+      toast.success(approve ? 'Record approved' : 'Record rejected')
+      // Optimistic update – mutate local state immediately
+      setTrainingList(prev =>
+        prev.map(item =>
+          item.id === id
+            ? { ...item, approved: approve, status: approve ? 'approved' : 'rejected' }
+            : item
+        )
+      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      toast.error(`Failed: ${message}`)
+    } finally {
+      setApprovalActionLoading(null)
     }
   }
 
@@ -611,90 +647,275 @@ export function TrainingPage() {
         </div>
 
         {/* RIGHT: Training Data List */}
-        <div className="lg:col-span-1">
+        <div className="lg:col-span-1 space-y-4">
+          {/* Manual Training Examples */}
           <div className="bg-light-card dark:bg-dark-card rounded-lg border border-light-border dark:border-dark-border overflow-hidden">
             <div className="p-4 border-b border-light-border dark:border-dark-border">
-              <h2 className="text-lg font-semibold text-light-text dark:text-dark-text mb-4">Recent Records</h2>
-
-              {/* Filters */}
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-xs font-semibold text-light-text dark:text-dark-text mb-1">Type</label>
-                  <select
-                    value={filterType}
-                    onChange={(e) => setFilterType(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded text-xs"
-                  >
-                    <option value="all">All Types</option>
-                    <option value="income_name">Income</option>
-                    <option value="expense_name">Expense</option>
-                    <option value="category_rule">Categorization</option>
-                    <option value="qa_example">Q&A</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-light-text dark:text-dark-text mb-1">Status</label>
-                  <select
-                    value={filterApproved}
-                    onChange={(e) => setFilterApproved(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded text-xs"
-                  >
-                    <option value="all">All</option>
-                    <option value="true">Approved</option>
-                    <option value="false">Pending</option>
-                  </select>
-                </div>
+              <h2 className="text-sm font-semibold text-light-text dark:text-dark-text">📝 Manual Training Examples</h2>
+              <p className="text-xs text-light-textMuted dark:text-dark-textMuted mt-0.5">Records added via this form</p>
+              <div className="flex gap-2 mt-2">
+                <select
+                  value={filterType}
+                  onChange={(e) => setFilterType(e.target.value)}
+                  className="flex-1 px-2 py-1 border border-gray-300 rounded text-xs"
+                >
+                  <option value="all">All Types</option>
+                  <option value="income_name">Income</option>
+                  <option value="expense_name">Expense</option>
+                  <option value="category_rule">Categorization</option>
+                  <option value="qa_example">Q&amp;A</option>
+                </select>
+                <select
+                  value={filterApproved}
+                  onChange={(e) => setFilterApproved(e.target.value)}
+                  className="flex-1 px-2 py-1 border border-gray-300 rounded text-xs"
+                >
+                  <option value="all">All</option>
+                  <option value="true">Approved</option>
+                  <option value="false">Pending</option>
+                </select>
               </div>
             </div>
 
-            <div className="overflow-y-auto max-h-96">
+            <div className="overflow-y-auto max-h-64">
               {listLoading ? (
-                <div className="p-4 text-center text-gray-500 text-sm">Loading...</div>
+                <div className="p-4 text-center text-gray-500 text-sm">Loading…</div>
               ) : listError ? (
                 <div className="p-4 text-center text-red-600 text-sm">
                   <p className="font-semibold">⚠️ Error</p>
-                  <p>{listError}</p>
+                  <p className="text-xs mt-1">{listError}</p>
                 </div>
-              ) : trainingList.length === 0 ? (
-                <div className="p-4 text-center text-gray-500 text-sm">No training data yet</div>
-              ) : (
-                <div className="divide-y">
-                  {trainingList.slice(0, 10).map((item) => (
-                    <div key={item.id} className="p-3 hover:bg-light-border dark:bg-dark-border text-xs">
-                      <div className="flex items-start gap-2">
-                        <span
-                          className={`px-2 py-1 rounded text-white font-semibold whitespace-nowrap ${
-                            item.type === 'income_name'
-                              ? 'bg-green-600'
-                              : item.type === 'expense_name'
-                                ? 'bg-red-600'
-                                : item.type === 'category_rule'
-                                  ? 'bg-blue-600'
-                                  : 'bg-purple-600'
-                          }`}
-                        >
-                          {item.type === 'income_name'
-                            ? '💰'
-                            : item.type === 'expense_name'
-                              ? '💸'
-                              : item.type === 'category_rule'
-                                ? '🏷️'
-                                : '❓'}
-                        </span>
-                        <div className="flex-1">
-                          <p className="font-semibold text-light-text dark:text-dark-text truncate">{item.input}</p>
-                          <p className="text-gray-500">
-                            {item.approved ? '✅ Approved' : '⏳ Pending'}
-                          </p>
+              ) : (() => {
+                const manualTypes = ['income_name', 'expense_name', 'category_rule', 'qa_example']
+                const manualItems = trainingList.filter(i => manualTypes.includes(i.type))
+                if (manualItems.length === 0) {
+                  return (
+                    <div className="p-4 text-center text-gray-500 text-sm">
+                      <p>No manual training records yet.</p>
+                      <p className="text-xs mt-1 text-gray-400">Use the form on the left to add examples.</p>
+                    </div>
+                  )
+                }
+                return (
+                  <div className="divide-y">
+                    {manualItems.slice(0, 15).map((item) => (
+                      <div key={item.id} className="p-3 hover:bg-light-border/50 dark:hover:bg-dark-border/50 text-xs">
+                        <div className="flex items-start gap-2">
+                          <span className={`px-1.5 py-0.5 rounded text-white text-xs font-semibold whitespace-nowrap ${
+                            item.type === 'income_name' ? 'bg-green-600'
+                            : item.type === 'expense_name' ? 'bg-red-600'
+                            : item.type === 'category_rule' ? 'bg-blue-600'
+                            : 'bg-purple-600'
+                          }`}>
+                            {item.type === 'income_name' ? '💰' : item.type === 'expense_name' ? '💸' : item.type === 'category_rule' ? '🏷️' : '❓'}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-light-text dark:text-dark-text truncate">{item.input || '—'}</p>
+                            {item.expectedOutput && (
+                              <p className="text-gray-400 truncate">→ {item.expectedOutput}</p>
+                            )}
+                            <p className={`text-xs mt-0.5 ${(item.approved || item.status === 'approved') ? 'text-green-600' : 'text-yellow-600'}`}>
+                              {(item.approved || item.status === 'approved') ? '✅ Approved' : '⏳ Pending approval'}
+                            </p>
+                          </div>
                         </div>
                       </div>
+                    ))}
+                  </div>
+                )
+              })()}
+            </div>
+          </div>
+
+          {/* L2 Feedback Records (manual entries for model learning) */}
+          <div className="bg-light-card dark:bg-dark-card rounded-lg border border-light-border dark:border-dark-border overflow-hidden">
+            <div className="p-4 border-b border-light-border dark:border-dark-border">
+              <h2 className="text-sm font-semibold text-light-text dark:text-dark-text">🎯 L2 Manual Feedback</h2>
+              <p className="text-xs text-light-textMuted dark:text-dark-textMuted mt-0.5">Manually entered correction records (2× weight)</p>
+            </div>
+            <div className="overflow-y-auto max-h-48">
+              {listLoading ? (
+                <div className="p-4 text-center text-gray-500 text-sm">Loading…</div>
+              ) : (() => {
+                const l2Manual = trainingList.filter(i => i.type === 'l2_manual_feedback')
+                if (l2Manual.length === 0) {
+                  return (
+                    <div className="p-4 text-center text-gray-500 text-sm">
+                      <p>No L2 manual feedback yet.</p>
+                      <p className="text-xs mt-1 text-gray-400">Add via ML Predictions → Add Feedback.</p>
                     </div>
-                  ))}
-                </div>
-              )}
+                  )
+                }
+                return (
+                  <div className="divide-y">
+                    {l2Manual.slice(0, 10).map((item) => (
+                      <div key={item.id} className="p-3 hover:bg-light-border/50 dark:hover:bg-dark-border/50 text-xs">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <p className="font-semibold text-light-text dark:text-dark-text">{item.month || '—'}</p>
+                            <p className="text-gray-400 text-xs">{item.userId ? item.userId.slice(0, 10) + '…' : '—'}</p>
+                          </div>
+                          <div className="text-right">
+                            {item.errorPercent != null && (
+                              <p className={`font-semibold ${Math.abs(item.errorPercent) > 10 ? 'text-red-600' : 'text-green-600'}`}>
+                                {item.errorPercent.toFixed(1)}% err
+                              </p>
+                            )}
+                            <p className={`text-xs mt-0.5 ${item.status === 'approved' ? 'text-green-600' : 'text-yellow-600'}`}>
+                              {item.status === 'approved' ? '✅' : '⏳'} {item.status}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
             </div>
           </div>
         </div>
+      </div>
+
+      {/* ── Approval Panel ──────────────────────────────────────────────────── */}
+      <div className="bg-light-card dark:bg-dark-card rounded-lg border border-light-border dark:border-dark-border overflow-hidden">
+        <div className="p-4 border-b border-light-border dark:border-dark-border flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-light-text dark:text-dark-text">✅ Training Record Review</h2>
+            <p className="text-xs text-light-textMuted dark:text-dark-textMuted mt-0.5">
+              Approve or reject training records. Admin-created records are auto-approved. L2 feedback may need review.
+            </p>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            {(['all', 'pending', 'approved', 'rejected'] as const).map(f => (
+              <button
+                key={f}
+                onClick={() => setApprovalFilter(f)}
+                className={`px-3 py-1 rounded text-xs font-semibold ${approvalFilter === f
+                  ? f === 'pending' ? 'bg-yellow-500 text-white'
+                    : f === 'approved' ? 'bg-green-600 text-white'
+                    : f === 'rejected' ? 'bg-red-600 text-white'
+                    : 'bg-blue-600 text-white'
+                  : 'bg-light-border dark:bg-dark-border text-light-text dark:text-dark-text'
+                }`}
+              >
+                {f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)}
+                {f !== 'all' && (
+                  <span className="ml-1">
+                    ({trainingList.filter(i => {
+                      const s = i.status || (i.approved ? 'approved' : 'pending')
+                      return s === f
+                    }).length})
+                  </span>
+                )}
+              </button>
+            ))}
+            <button
+              onClick={loadTrainingData}
+              disabled={listLoading}
+              className="px-3 py-1 rounded text-xs bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold"
+            >
+              🔄
+            </button>
+          </div>
+        </div>
+
+        {listLoading ? (
+          <div className="p-6 text-center text-light-textMuted dark:text-dark-textMuted text-sm">Loading…</div>
+        ) : listError ? (
+          <div className="p-4 text-sm text-red-600 dark:text-red-400">⚠️ {listError}</div>
+        ) : (() => {
+          const manualTypes = ['income_name', 'expense_name', 'category_rule', 'qa_example', 'l2_manual_feedback', 'l2_auto_feedback']
+          const items = trainingList
+            .filter(item => manualTypes.includes(item.type))
+            .filter(item => {
+              if (approvalFilter === 'all') return true
+              const s = item.status || (item.approved ? 'approved' : 'pending')
+              return s === approvalFilter
+            })
+
+          if (items.length === 0) {
+            return (
+              <div className="p-6 text-center text-light-textMuted dark:text-dark-textMuted text-sm">
+                No records {approvalFilter !== 'all' ? `with status "${approvalFilter}"` : ''}.
+              </div>
+            )
+          }
+
+          return (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-light-border dark:bg-dark-border">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Status</th>
+                    <th className="px-3 py-2 text-left">Type</th>
+                    <th className="px-3 py-2 text-left">Input</th>
+                    <th className="px-3 py-2 text-left">Expected Output</th>
+                    <th className="px-3 py-2 text-left">Note</th>
+                    <th className="px-3 py-2 text-left">Created</th>
+                    <th className="px-3 py-2 text-left">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map(item => {
+                    const status = item.status || (item.approved ? 'approved' : 'pending')
+                    const isPending = status === 'pending'
+                    const isActioning = approvalActionLoading === item.id
+                    return (
+                      <tr key={item.id} className="border-b border-light-border dark:border-dark-border hover:bg-light-bg dark:hover:bg-dark-bg/50">
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                            status === 'approved' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                            : status === 'rejected' ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+                            : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300'
+                          }`}>
+                            {status === 'approved' ? '✅ Approved' : status === 'rejected' ? '❌ Rejected' : '⏳ Pending'}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 whitespace-nowrap text-light-textMuted dark:text-dark-textMuted">
+                          {item.type.replace('_', ' ')}
+                        </td>
+                        <td className="px-3 py-2 max-w-xs truncate text-light-text dark:text-dark-text" title={item.input}>
+                          {item.input || '—'}
+                        </td>
+                        <td className="px-3 py-2 max-w-xs truncate text-light-textMuted dark:text-dark-textMuted" title={item.expectedOutput}>
+                          {item.expectedOutput || '—'}
+                        </td>
+                        <td className="px-3 py-2 max-w-xs truncate text-light-textMuted dark:text-dark-textMuted" title={item.note}>
+                          {item.note || '—'}
+                        </td>
+                        <td className="px-3 py-2 whitespace-nowrap text-light-textMuted dark:text-dark-textMuted">
+                          {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : '—'}
+                        </td>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          {isPending ? (
+                            <div className="flex gap-1">
+                              <button
+                                onClick={() => handleApproveItem(item.id, true)}
+                                disabled={isActioning}
+                                className="px-2 py-1 rounded bg-green-600 text-white text-xs font-semibold hover:bg-green-700 disabled:opacity-50"
+                              >
+                                {isActioning ? '…' : 'Approve'}
+                              </button>
+                              <button
+                                onClick={() => handleApproveItem(item.id, false)}
+                                disabled={isActioning}
+                                className="px-2 py-1 rounded bg-red-600 text-white text-xs font-semibold hover:bg-red-700 disabled:opacity-50"
+                              >
+                                {isActioning ? '…' : 'Reject'}
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-light-textMuted dark:text-dark-textMuted">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )
+        })()}
       </div>
 
       {/* Info Box */}

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/auth/AuthProvider'
 import { useUserRole } from '@/hooks/useUserRole'
+import { useAdminUserSelector, userLabel } from '@/hooks/useAdminUserSelector'
 import type { AiProfile } from '@/types/aiProfile'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -85,6 +86,7 @@ interface UserEntry {
 export function AiProfilesPage() {
   const { user, getIdToken } = useAuth()
   const { role: userRole } = useUserRole(user)
+  const { users: adminUsers, usersLoading, selectedUserId, selectedUser, selectUser } = useAdminUserSelector()
 
   const [users, setUsers] = useState<UserEntry[]>([])
   const [profiles, setProfiles] = useState<Record<string, AiProfile>>({})
@@ -98,6 +100,8 @@ export function AiProfilesPage() {
   const [searchQuery, setSearchQuery] = useState('')
 
   const isAdmin = userRole === 'admin' || userRole === 'ml_admin'
+  // '' = All Users (admin only); specific uid = single user
+  const effectiveUserId = isAdmin ? selectedUserId : (user?.uid || '')
 
   // ── Load users via adminGetAuditTrail-style: use callCloudFunction ──────────
   const loadUsers = useCallback(async () => {
@@ -151,7 +155,7 @@ export function AiProfilesPage() {
 
   useEffect(() => {
     if (isAdmin) loadUsers()
-  }, [isAdmin, loadUsers])
+  }, [isAdmin, loadUsers, effectiveUserId])
 
   // ── Generate single profile ───────────────────────────────────────────────
   const handleGenerateProfile = async (u: UserEntry) => {
@@ -228,6 +232,10 @@ export function AiProfilesPage() {
 
   // ── Filtered users ────────────────────────────────────────────────────────
   const filteredUsers = users.filter((u) => {
+    // Filter by selected user (admin only)
+    if (effectiveUserId && u.uid !== effectiveUserId) return false
+
+    // Filter by search query
     if (!searchQuery) return true
     const q = searchQuery.toLowerCase()
     return (
@@ -276,6 +284,44 @@ export function AiProfilesPage() {
             : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
         }`}>
           {statusMsg.text}
+        </div>
+      )}
+
+      {/* Viewing scope banner */}
+      <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg px-4 py-2 text-sm text-blue-700 dark:text-blue-300">
+        Viewing: <strong>{effectiveUserId ? userLabel(selectedUser) : 'All Users (Aggregate)'}</strong>
+      </div>
+
+      {/* User selector for admin */}
+      {isAdmin && (
+        <div className="card rounded-lg p-4 flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-3 flex-1 min-w-[260px]">
+            <label className="text-sm font-semibold text-light-text dark:text-dark-text whitespace-nowrap">
+              View profiles for:
+            </label>
+            {usersLoading ? (
+              <span className="text-sm text-light-textMuted dark:text-dark-textMuted">Loading users…</span>
+            ) : (
+              <select
+                value={selectedUserId}
+                onChange={e => selectUser(e.target.value)}
+                className="flex-1 px-3 py-2 rounded border border-light-border dark:border-dark-border bg-light-bg dark:bg-dark-bg text-sm text-light-text dark:text-dark-text"
+              >
+                <option value="">— All Users —</option>
+                {adminUsers.map(u => (
+                  <option key={u.id} value={u.id}>
+                    {u.displayName ? `${u.displayName} — ${u.email || u.id}` : (u.email || u.id)}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+          {selectedUser && (
+            <div className="text-xs text-light-textMuted dark:text-dark-textMuted">
+              uid: <code className="font-mono">{selectedUser.id}</code>
+              {selectedUser.role && <span className="ml-2 px-1.5 py-0.5 rounded bg-light-border dark:bg-dark-border">{selectedUser.role}</span>}
+            </div>
+          )}
         </div>
       )}
 
@@ -563,6 +609,12 @@ export function AiProfilesPage() {
                     <StatCell label="Expense records" value={p.expenseCount} />
                     <StatCell label="Income records" value={p.incomeCount} />
                     <StatCell label="Feedback count" value={p.feedbackCount ?? p.features?.feedbackCount ?? '—'} />
+                    {p.staleSince && (
+                      <StatCell label="Stale since" value={formatTs(p.staleSince)} />
+                    )}
+                    {p.lastAutoRegeneratedAt && (
+                      <StatCell label="Last auto-regenerated" value={formatTs(p.lastAutoRegeneratedAt)} />
+                    )}
                   </div>
                 </div>
 

@@ -2057,6 +2057,8 @@ const savePredictionResults = async (uid, prediction) => {
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       incomeStats: prediction.incomeStats || {},
       monthlyIncome: prediction.monthlyIncome || {},
+      pipelineLevel: 1,
+      active: true,
     };
 
     await db.collection(`users/${uid}/mlPredictions`).add(predictionData);
@@ -2388,6 +2390,7 @@ exports.adminCreateTrainingData = functions
         // 4. Create document in trainingData collection
         const trainingDocRef = db.collection('trainingData').doc();
 
+        // admin/ml_admin records are auto-approved on creation
         const trainingData = {
           type,
           input,
@@ -2395,7 +2398,10 @@ exports.adminCreateTrainingData = functions
           category: category || '',
           tags: Array.isArray(tags) ? tags : [],
           note,
-          approved: false,
+          approved: true,
+          status: 'approved',
+          approvedAt: admin.firestore.FieldValue.serverTimestamp(),
+          approvedBy: decodedToken.uid,
           createdBy: decodedToken.uid,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -2462,10 +2468,17 @@ exports.adminGetTrainingData = functions
         }
 
         // 3. Build query with filters
-        let query = db.collection('trainingData').orderBy('createdAt', 'desc');
+        // Read params from body (POST via IPC) OR query string (GET)
+        const params = Object.keys(req.body || {}).length > 0 ? req.body : req.query;
+        const type = params.type;
+        const category = params.category;
+        const approved = params.approved;
+        const limit = params.limit || 50;
+        const offset = params.offset || 0;
 
-        const { type, category, approved, limit = 50, offset = 0 } = req.query;
+        let query = db.collection('trainingData');
 
+        // Apply type filter first (without orderBy to avoid composite index requirement)
         if (type && type !== 'all') {
           query = query.where('type', '==', type);
         }
@@ -2475,9 +2488,12 @@ exports.adminGetTrainingData = functions
         }
 
         if (approved !== undefined && approved !== 'all') {
-          const approvedBool = approved === 'true';
+          const approvedBool = approved === 'true' || approved === true;
           query = query.where('approved', '==', approvedBool);
         }
+
+        // Only add orderBy when no compound where (avoids index requirement)
+        query = query.orderBy('createdAt', 'desc');
 
         // 4. Get total count and paginated data
         const snapshot = await query.get();
@@ -2641,11 +2657,13 @@ exports.adminApproveTrainingData = functions
           return res.status(400).json({ error: 'Missing required fields: id, approved' });
         }
 
-        // 4. Update approval status
+        // 4. Update approval status (both fields for consistency)
         const updates = {
           approved: Boolean(approved),
+          status: Boolean(approved) ? 'approved' : 'rejected',
           approvedAt: admin.firestore.FieldValue.serverTimestamp(),
           approvedBy: decodedToken.uid,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         };
 
         if (reason) {
@@ -3176,24 +3194,281 @@ exports.adminGetMlPredictions = functions.region(REGION).https.onRequest(async (
       return res.status(403).json({ error: 'Forbidden: insufficient role' });
     }
 
-    const targetUserId = req.query.uid;
-    if (!targetUserId) {
-      return res.status(400).json({ error: 'uid query parameter required' });
+    // Support uid from body (POST) or query (GET)
+    const targetUserId = req.body?.uid || req.query.uid;
+    const pipelineLevel = req.body?.pipelineLevel != null ? parseInt(req.body.pipelineLevel) : null;
+    const perUserLimit = req.body?.limit ? parseInt(req.body.limit) : 5;
+
+    if (targetUserId) {
+      // Single user mode — fetch then filter client-side to avoid composite index requirement
+      const snap = await db
+        .collection('users')
+        .doc(targetUserId)
+        .collection('mlPredictions')
+        .orderBy('createdAt', 'desc')
+        .limit(100)
+        .get();
+      let docs = snap.docs.map(doc => ({ id: doc.id, userId: targetUserId, ...doc.data() }));
+      if (pipelineLevel != null) {
+        docs = docs.filter(d => d.pipelineLevel === pipelineLevel);
+      }
+      return res.status(200).json({ ok: true, data: docs.slice(0, perUserLimit) });
     }
 
-    const limit = req.query.limit ? parseInt(req.query.limit) : 20;
-    const predictions = await db
-      .collection('users')
-      .doc(targetUserId)
-      .collection('mlPredictions')
-      .orderBy('timestamp', 'desc')
-      .limit(limit)
-      .get();
+    // All users mode: fetch per-user (no pipelineLevel in query to avoid index requirement)
+    const usersSnap = await db.collection('users').get();
+    const allPredictions = [];
+    for (const uDoc of usersSnap.docs) {
+      try {
+        const snap = await db
+          .collection('users').doc(uDoc.id).collection('mlPredictions')
+          .orderBy('createdAt', 'desc')
+          .limit(50)
+          .get();
+        snap.docs.forEach(doc => {
+          const d = { id: doc.id, userId: uDoc.id, ...doc.data() };
+          if (pipelineLevel == null || d.pipelineLevel === pipelineLevel) {
+            allPredictions.push(d);
+          }
+        });
+      } catch (e) {
+        // skip user on error
+      }
+    }
+    allPredictions.sort((a, b) => {
+      const aMs = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+      const bMs = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+      return bMs - aMs;
+    });
 
-    const data = predictions.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    res.status(200).json({ ok: true, data });
+    res.status(200).json({ ok: true, data: allPredictions.slice(0, perUserLimit * 10) });
   } catch (err) {
     logger.error('adminGetMlPredictions error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Aggregate metrics across all users
+exports.adminGetAggregateMetrics = functions.region(REGION).https.onRequest(async (req, res) => {
+  try {
+    const auth = req.header('authorization')?.replace('Bearer ', '');
+    if (!auth) return res.status(401).json({ error: 'Unauthorized' });
+
+    const decodedToken = await admin.auth().verifyIdToken(auth);
+    const userDoc = await db.collection('users').doc(decodedToken.uid).get();
+    const userRole = userDoc.data()?.role;
+
+    if (!['admin', 'ml_admin'].includes(userRole)) {
+      return res.status(403).json({ error: 'Forbidden: insufficient role' });
+    }
+
+    const pipelineLevel = req.body?.pipelineLevel != null ? parseInt(req.body.pipelineLevel) : null;
+
+    // Fetch all users
+    const usersSnap = await db.collection('users').get();
+    const metrics = {
+      totalUsers: usersSnap.size,
+      totalPredictions: 0,
+      usersWithPredictions: new Set(),
+      totalPredictedExpense: 0,
+      averageConfidence: 0,
+      totalFallback: 0,
+      totalStaleProfiles: 0,
+      totalMissingProfiles: 0,
+      totalPersonalized: 0,
+      trainingDataUsedCount: 0,
+      allPredictions: [],
+    };
+
+    // Iterate through all users and collect predictions
+    for (const uDoc of usersSnap.docs) {
+      try {
+        const predictionsSnap = await db
+          .collection('users').doc(uDoc.id).collection('mlPredictions')
+          .get();
+
+        predictionsSnap.docs.forEach(doc => {
+          const pred = { userId: uDoc.id, ...doc.data() };
+
+          // Filter by pipelineLevel if specified
+          if (pipelineLevel != null && pred.pipelineLevel !== pipelineLevel) {
+            return;
+          }
+
+          metrics.totalPredictions++;
+          metrics.usersWithPredictions.add(uDoc.id);
+          metrics.totalPredictedExpense += pred.totalPredictedExpense ?? 0;
+          metrics.allPredictions.push(pred);
+
+          if (pred.fallbackUsed) metrics.totalFallback++;
+          if (pred.aiProfileStale) metrics.totalStaleProfiles++;
+          if (pred.aiProfileStatus === 'missing') metrics.totalMissingProfiles++;
+          if (pred.aiProfileUsed && !pred.fallbackUsed) metrics.totalPersonalized++;
+          if (pred.trainingDataUsed) metrics.trainingDataUsedCount++;
+        });
+      } catch (e) {
+        // Skip user on error
+      }
+    }
+
+    // Calculate average confidence
+    const withConf = metrics.allPredictions.filter(p => (p.confidenceScore ?? 0) > 0);
+    if (withConf.length > 0) {
+      metrics.averageConfidence = withConf.reduce((s, p) => s + p.confidenceScore, 0) / withConf.length;
+      metrics.averageConfidence = Math.round(metrics.averageConfidence * 10) / 10; // Round to 1 decimal
+    }
+
+    // Convert Set to number
+    const usersWithPredictionsCount = metrics.usersWithPredictions.size;
+
+    // Remove allPredictions from response (too large)
+    const response = {
+      ok: true,
+      data: {
+        totalUsers: metrics.totalUsers,
+        usersWithPredictions: usersWithPredictionsCount,
+        totalPredictions: metrics.totalPredictions,
+        totalPredictedExpense: metrics.totalPredictedExpense,
+        averageConfidence: metrics.averageConfidence,
+        fallbackPredictions: metrics.totalFallback,
+        staleProfiles: metrics.totalStaleProfiles,
+        missingProfiles: metrics.totalMissingProfiles,
+        personalizedPredictions: metrics.totalPersonalized,
+        trainingDataUsed: metrics.trainingDataUsedCount,
+        pipelineLevel: pipelineLevel,
+      }
+    };
+
+    res.status(200).json(response);
+  } catch (err) {
+    logger.error('adminGetAggregateMetrics error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get latest L2 shadow run evaluation metrics
+exports.adminGetLatestL2RunSummary = functions.region(REGION).https.onRequest(async (req, res) => {
+  try {
+    const auth = req.header('authorization')?.replace('Bearer ', '');
+    if (!auth) return res.status(401).json({ error: 'Unauthorized' });
+
+    const decodedToken = await admin.auth().verifyIdToken(auth);
+    const userDoc = await db.collection('users').doc(decodedToken.uid).get();
+    const userRole = userDoc.data()?.role;
+
+    if (!['admin', 'ml_admin'].includes(userRole)) {
+      return res.status(403).json({ error: 'Forbidden: insufficient role' });
+    }
+
+    // Fetch ALL mlRuns without orderBy, sort client-side.
+    const snap = await db.collection('mlRuns').limit(200).get();
+    const allDocs = snap.docs.map(doc => {
+      const d = doc.data();
+      return { id: doc.id, ...d };
+    });
+
+    // Debug: log what fields we actually see in the collection
+    const debugSample = allDocs.slice(0, 3).map(d => ({
+      id: d.id, pipelineLevel: d.pipelineLevel, level: d.level,
+      mode: d.mode, shadowMode: d.shadowMode, status: d.status,
+      hasStartedAt: !!d.startedAt, hasTimestamp: !!d.timestamp,
+    }));
+    logger.info('[L2_SUMMARY] mlRuns sample:', JSON.stringify(debugSample));
+    logger.info('[L2_SUMMARY] total docs in mlRuns:', allDocs.length);
+
+    // Broad filter: pipelineLevel 2 OR level 2 (ignore mode - older docs may not have it)
+    const l2Docs = allDocs
+      .filter(d => d.pipelineLevel === 2 || d.level === 2)
+      .sort((a, b) => {
+        const aMs = a.startedAt?.toMillis?.() || (a.startedAt?.seconds || 0) * 1000 || (a.timestamp ? new Date(a.timestamp).getTime() : 0);
+        const bMs = b.startedAt?.toMillis?.() || (b.startedAt?.seconds || 0) * 1000 || (b.timestamp ? new Date(b.timestamp).getTime() : 0);
+        return bMs - aMs;
+      });
+
+    logger.info('[L2_SUMMARY] l2 docs after filter:', l2Docs.length);
+
+    if (l2Docs.length === 0) {
+      return res.status(200).json({ ok: true, data: null, message: `No L2 shadow runs found (total mlRuns: ${allDocs.length})` });
+    }
+
+    const latestRun = l2Docs[0];
+    const summary = {
+      runId: latestRun.runId,
+      status: latestRun.status,
+      startedAt: latestRun.startedAt,
+      finishedAt: latestRun.finishedAt,
+      durationMs: latestRun.durationMs,
+      // Evaluation metrics
+      averageConfidence: latestRun.averageConfidence || 0,
+      averageFinalCorrectionFactor: latestRun.averageFinalCorrectionFactor || 1.0,
+      staleProfileCount: latestRun.staleProfileCount || 0,
+      missingProfileCount: latestRun.missingProfileCount || 0,
+      personalizedPredictionCount: latestRun.personalizedPredictionCount || 0,
+      fallbackPredictionCount: latestRun.fallbackPredictionCount || 0,
+      // Stats
+      predictionsCreated: latestRun.predictionsCreated,
+      usersProcessed: latestRun.usersProcessed,
+      usersTotal: latestRun.usersTotal,
+    };
+
+    res.status(200).json({ ok: true, data: summary });
+  } catch (err) {
+    logger.error('adminGetLatestL2RunSummary error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get recent L2 shadow runs for historical comparison
+exports.adminGetRecentL2Runs = functions.region(REGION).https.onRequest(async (req, res) => {
+  try {
+    const auth = req.header('authorization')?.replace('Bearer ', '');
+    if (!auth) return res.status(401).json({ error: 'Unauthorized' });
+
+    const decodedToken = await admin.auth().verifyIdToken(auth);
+    const userDoc = await db.collection('users').doc(decodedToken.uid).get();
+    const userRole = userDoc.data()?.role;
+
+    if (!['admin', 'ml_admin'].includes(userRole)) {
+      return res.status(403).json({ error: 'Forbidden: insufficient role' });
+    }
+
+    // Same broad filter as adminGetLatestL2RunSummary — pipelineLevel 2 OR level 2.
+    const snap2 = await db.collection('mlRuns').limit(200).get();
+    const allDocs2 = snap2.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const l2RunDocs = allDocs2
+      .filter(d => d.pipelineLevel === 2 || d.level === 2)
+      .sort((a, b) => {
+        const aMs = a.startedAt?.toMillis?.() || (a.startedAt?.seconds || 0) * 1000 || (a.timestamp ? new Date(a.timestamp).getTime() : 0);
+        const bMs = b.startedAt?.toMillis?.() || (b.startedAt?.seconds || 0) * 1000 || (b.timestamp ? new Date(b.timestamp).getTime() : 0);
+        return bMs - aMs;
+      })
+      .slice(0, 5);
+
+    if (l2RunDocs.length === 0) {
+      return res.status(200).json({ ok: true, data: [], message: 'No L2 shadow runs found' });
+    }
+
+    const runsData = l2RunDocs.map(data => ({
+      id: data.id,
+      runId: data.runId,
+      status: data.status,
+      startedAt: data.startedAt,
+      durationMs: data.durationMs,
+      // Core stats
+      predictionsCreated: data.predictionsCreated || 0,
+      usersProcessed: data.usersProcessed || 0,
+      usersTotal: data.usersTotal || 0,
+      // Evaluation metrics
+      averageConfidence: data.averageConfidence || 0,
+      personalizedPredictionCount: data.personalizedPredictionCount || 0,
+      staleProfileCount: data.staleProfileCount || 0,
+      missingProfileCount: data.missingProfileCount || 0,
+      fallbackPredictionCount: data.fallbackPredictionCount || 0,
+    }));
+
+    res.status(200).json({ ok: true, data: runsData });
+  } catch (err) {
+    logger.error('adminGetRecentL2Runs error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -3451,6 +3726,12 @@ exports.runLevel2ShadowPipeline = functions.region(REGION).https.onRequest(async
     let autoFeedbackUsedCount = 0;
     let usersWithTrainingData = 0;
     let sumFinalCorrectionFactors = 0;
+    // Evaluation metrics
+    let sumConfidenceScores = 0;
+    let staleProfileCount = 0;
+    let missingProfileCount = 0;
+    let personalizedPredictionCount = 0;
+    let fallbackPredictionCount = 0;
     const errors = [];
 
     // Get all users
@@ -3607,14 +3888,18 @@ exports.runLevel2ShadowPipeline = functions.region(REGION).https.onRequest(async
         let appliedProfileAdjustments = [];
         let profileExplanation = '';
         let predictionWarnings = [];
+        let confidenceBreakdown = [];
+        let volatilityConfidenceImpact = 0;
+        let incomeRegularityConfidenceImpact = 0;
+        let staleProfileConfidenceImpact = 0;
 
         try {
           const profileDoc = await db.collection('users').doc(uid).collection('aiProfile').doc('summary').get();
           if (profileDoc.exists) {
             aiProfile = profileDoc.data();
-            aiProfileGeneratedAt = aiProfile.generatedAt;
-            aiProfileLastTransactionAt = aiProfile.lastTransactionAt;
-            aiProfileLastFeedbackAt = aiProfile.lastFeedbackAt;
+            aiProfileGeneratedAt = aiProfile.generatedAt ?? null;
+            aiProfileLastTransactionAt = aiProfile.lastTransactionAt ?? null;
+            aiProfileLastFeedbackAt = aiProfile.lastFeedbackAt ?? null;
 
             // Check freshness
             const generatedAt = aiProfile.generatedAt?.toDate ? aiProfile.generatedAt.toDate() : aiProfile.generatedAt;
@@ -3622,9 +3907,25 @@ exports.runLevel2ShadowPipeline = functions.region(REGION).https.onRequest(async
             aiProfileStale = staleness.profileStale;
             aiProfileStatus = staleness.profileStale ? 'stale' : 'fresh';
 
+            // If newly detected as stale, mark it and persist staleSince
+            if (staleness.profileStale && !aiProfile.profileStale) {
+              // Transition from fresh to stale: mark staleSince
+              await db.collection('users').doc(uid).collection('aiProfile').doc('summary').update({
+                profileStale: true,
+                staleSince: admin.firestore.FieldValue.serverTimestamp(),
+              }).catch(() => {});  // Non-critical
+            } else if (!staleness.profileStale && aiProfile.profileStale) {
+              // Transition from stale to fresh (via auto-regen or manual): clear staleSince
+              await db.collection('users').doc(uid).collection('aiProfile').doc('summary').update({
+                profileStale: false,
+                staleSince: null,
+              }).catch(() => {});  // Non-critical
+            }
+
             // If stale, reduce confidence slightly
             if (staleness.profileStale) {
               personalizedConfidenceAdjustment -= 5;
+              staleProfileConfidenceImpact = -5;
               predictionWarnings.push('ai_profile_stale');
             }
 
@@ -3632,9 +3933,11 @@ exports.runLevel2ShadowPipeline = functions.region(REGION).https.onRequest(async
             // 1. Expense volatility → adjust confidence
             if (aiProfile.expenseVolatility > 0.5) {
               personalizedConfidenceAdjustment -= 10;
+              volatilityConfidenceImpact = -10;
               appliedProfileAdjustments.push('reduced_confidence_high_volatility');
             } else if (aiProfile.expenseVolatility < 0.2) {
               personalizedConfidenceAdjustment += 5;
+              volatilityConfidenceImpact = 5;
               appliedProfileAdjustments.push('boosted_confidence_low_volatility');
             }
 
@@ -3647,6 +3950,7 @@ exports.runLevel2ShadowPipeline = functions.region(REGION).https.onRequest(async
             // 3. Income regularity → adjust confidence
             if (aiProfile.incomeRegularity > 0.8) {
               personalizedConfidenceAdjustment += 5;
+              incomeRegularityConfidenceImpact = 5;
               appliedProfileAdjustments.push('boosted_confidence_stable_income');
             }
 
@@ -3667,9 +3971,22 @@ exports.runLevel2ShadowPipeline = functions.region(REGION).https.onRequest(async
             }
             if (aiProfile.feedbackAdjustedBias !== 0) parts.push('feedback-adjusted');
             profileExplanation = parts.length > 0 ? `User profile: ${parts.join(', ')}` : '';
+
+            // Build confidence breakdown
+            confidenceBreakdown.push('Base confidence: 70%');
+            if (volatilityConfidenceImpact !== 0) {
+              confidenceBreakdown.push(`Expense volatility impact: ${volatilityConfidenceImpact > 0 ? '+' : ''}${volatilityConfidenceImpact}%`);
+            }
+            if (incomeRegularityConfidenceImpact !== 0) {
+              confidenceBreakdown.push(`Income regularity impact: ${incomeRegularityConfidenceImpact > 0 ? '+' : ''}${incomeRegularityConfidenceImpact}%`);
+            }
+            if (staleProfileConfidenceImpact !== 0) {
+              confidenceBreakdown.push(`Stale AI profile impact: ${staleProfileConfidenceImpact > 0 ? '+' : ''}${staleProfileConfidenceImpact}%`);
+            }
           }
         } catch (err) {
           logger.warn(`[L2_SHADOW] Failed to load AI profile for ${uid}:`, err.message);
+          confidenceBreakdown.push('Base confidence: 70%');
         }
 
         let shadowPrediction = null;
@@ -3707,18 +4024,31 @@ exports.runLevel2ShadowPipeline = functions.region(REGION).https.onRequest(async
             if (aiProfileStale) {
               explanationBreakdown.push('⚠️ AI profile was stale at prediction time.');
             }
+
+            // Category-level insights
+            if (aiProfile.topStableCategories?.length > 0) {
+              explanationBreakdown.push(`Stable categories: ${aiProfile.topStableCategories.join(', ')} (low volatility, predictable)`);
+            }
+            if (aiProfile.topVolatileCategories?.length > 0) {
+              explanationBreakdown.push(`Volatile categories: ${aiProfile.topVolatileCategories.join(', ')} (high variability, affects confidence)`);
+            }
           } else {
             explanationBreakdown.push('No AI profile was available, so no personalized profile adjustment was applied.');
           }
           explanationBreakdown.push(`Final prediction: ${finalPredictedAmount.toLocaleString()} Kč (${((variation - 1) * 100).toFixed(1)}% change)`);
+
+          // Calculate final confidence score (base 70 + adjustments)
+          const baseConfidenceScore = 70;
+          const finalConfidenceScore = Math.max(30, Math.min(100, baseConfidenceScore + personalizedConfidenceAdjustment));
+          confidenceBreakdown.push(`Final confidence: ${finalConfidenceScore}%`);
 
           shadowPrediction = {
             // Core prediction data
             month: new Date().toISOString().split('T')[0].substring(0, 7),
             totalPredictedExpense: finalPredictedAmount,
             categories: level1Pred.categories || {},
-            confidence: 'medium',
-            confidenceScore: 70,
+            confidence: finalConfidenceScore > 75 ? 'high' : finalConfidenceScore > 55 ? 'medium' : 'low',
+            confidenceScore: finalConfidenceScore,
             // Pipeline level & mode
             pipelineLevel: 2,
             shadowMode: true,
@@ -3740,24 +4070,34 @@ exports.runLevel2ShadowPipeline = functions.region(REGION).https.onRequest(async
             incomeDataUsed: true,
             // AI Profile personalization (rule-based, NOT full ML)
             aiProfileUsed: aiProfile ? true : false,
-            aiProfileVersion: aiProfile?.profileVersion || null,
+            aiProfileVersion: aiProfile?.profileVersion ?? null,
             aiProfileStatus: aiProfileStatus,  // 'fresh' | 'stale' | 'missing'
             aiProfileStale: aiProfileStale,
-            aiProfileGeneratedAt: aiProfileGeneratedAt,
-            aiProfileLastTransactionAt: aiProfileLastTransactionAt,
-            aiProfileLastFeedbackAt: aiProfileLastFeedbackAt,
+            aiProfileGeneratedAt: aiProfileGeneratedAt ?? null,
+            aiProfileLastTransactionAt: aiProfileLastTransactionAt ?? null,
+            aiProfileLastFeedbackAt: aiProfileLastFeedbackAt ?? null,
             personalizedAdjustmentFactor: Math.round(personalizedAdjustmentFactor * 100) / 100,
-            personalizedConfidenceAdjustment,
-            appliedProfileAdjustments: appliedProfileAdjustments,
-            personalizedExplanation: profileExplanation,
+            personalizedConfidenceAdjustment: personalizedConfidenceAdjustment ?? 0,
+            appliedProfileAdjustments: appliedProfileAdjustments ?? [],
+            personalizedExplanation: profileExplanation ?? '',
             // Warnings (stale profile, etc.)
-            predictionWarnings: predictionWarnings,
+            predictionWarnings: predictionWarnings ?? [],
+            // Confidence breakdown
+            confidenceBreakdown: confidenceBreakdown ?? [],
             // Explainability: breakdown of how we arrived at this prediction
             basePredictionAmount: basePredictionAmount,
             trainingDataCorrectionFactor: Math.round(trainingDataCorrectionFactor * 100) / 100,
             aiProfileAdjustmentFactor: Math.round(aiProfileAdjustmentFactor * 100) / 100,
             finalPredictedAmount: finalPredictedAmount,
-            explanationBreakdown: explanationBreakdown,
+            explanationBreakdown: explanationBreakdown ?? [],
+            // Category-level personalization signals
+            categoryAdjustmentSignals: aiProfile ? {
+              volatility: aiProfile.expenseCategoryVolatility || {},
+              trend: aiProfile.expenseCategoryTrend || {},
+              stableCategories: aiProfile.topStableCategories || [],
+              volatileCategories: aiProfile.topVolatileCategories || [],
+            } : null,
+            topCategoriesAffectingPrediction: aiProfile?.topVolatileCategories ?? [],
             // Metrics
             fallbackUsed: false,
             metrics: {
@@ -3798,14 +4138,19 @@ exports.runLevel2ShadowPipeline = functions.region(REGION).https.onRequest(async
             aiProfileVersion: null,
             aiProfileStatus: aiProfileStatus,
             aiProfileStale: aiProfileStale,
-            aiProfileGeneratedAt: aiProfileGeneratedAt,
-            aiProfileLastTransactionAt: aiProfileLastTransactionAt,
-            aiProfileLastFeedbackAt: aiProfileLastFeedbackAt,
+            aiProfileGeneratedAt: aiProfileGeneratedAt ?? null,
+            aiProfileLastTransactionAt: aiProfileLastTransactionAt ?? null,
+            aiProfileLastFeedbackAt: aiProfileLastFeedbackAt ?? null,
             personalizedAdjustmentFactor: 1.0,
             personalizedConfidenceAdjustment: 0,
             appliedProfileAdjustments: [],
             personalizedExplanation: 'Fallback: insufficient data for personalization',
-            predictionWarnings: predictionWarnings,
+            predictionWarnings: predictionWarnings ?? [],
+            confidenceBreakdown: [
+              'Base confidence: 70%',
+              'Fallback mode penalty: -20% (insufficient data)',
+              'Final confidence: 50%',
+            ],
             // Explainability: breakdown of how we arrived at this prediction
             basePredictionAmount: basePredictionAmount,
             trainingDataCorrectionFactor: 1.0,
@@ -3844,6 +4189,13 @@ exports.runLevel2ShadowPipeline = functions.region(REGION).https.onRequest(async
           usersWithTrainingData++;
           sumFinalCorrectionFactors += finalCorrectionFactor;
         }
+
+        // Track evaluation metrics
+        sumConfidenceScores += (shadowPrediction.confidenceScore || 0);
+        if (shadowPrediction.aiProfileStale) staleProfileCount++;
+        if (shadowPrediction.aiProfileStatus === 'missing') missingProfileCount++;
+        if (shadowPrediction.aiProfileUsed && !shadowPrediction.fallbackUsed) personalizedPredictionCount++;
+        if (shadowPrediction.fallbackUsed) fallbackPredictionCount++;
 
         predictionsCreated++;
         usersProcessed++;
@@ -3925,6 +4277,14 @@ exports.runLevel2ShadowPipeline = functions.region(REGION).https.onRequest(async
       averageFinalCorrectionFactor: usersWithTrainingData > 0
         ? Math.round((sumFinalCorrectionFactors / usersWithTrainingData) * 100) / 100
         : 1.0,
+      // Evaluation metrics for monitoring
+      averageConfidence: predictionsCreated > 0
+        ? Math.round((sumConfidenceScores / predictionsCreated) * 100) / 100
+        : 0,
+      staleProfileCount: staleProfileCount,
+      missingProfileCount: missingProfileCount,
+      personalizedPredictionCount: personalizedPredictionCount,
+      fallbackPredictionCount: fallbackPredictionCount,
       notes: 'Simplified shadow baseline for validating L2 shadow flow. Uses Level 1 predictions + small variation. Applies weighted calibration from manual (weight=2) and auto (weight=1) L2 training feedback if available. NOT Python ML pipeline. NOT actual RandomForest model. For production ML: integrate ml-pipeline/ and trainingData collections.',
       // Timestamps & stats
       startedAt: admin.firestore.Timestamp.fromMillis(startTime),
@@ -4404,6 +4764,37 @@ const extractUserFeatures = async (uid) => {
       ? autoFeedback.docs.reduce((sum, d) => sum + (d.data().finalCorrectionFactor || 1), 0) / autoFeedback.size
       : 1.0;
 
+    // Category-level analysis
+    const expenseCategoryVolatility = {};
+    const expenseCategoryTrend = {};
+    const topStableCategories = [];
+    const topVolatileCategories = [];
+
+    // For each category, calculate volatility and trend
+    Object.keys(categoryTotals12m).forEach(cat => {
+      const catVydaje12m = vydaje12m.docs.filter(d => (d.data().kategorie || 'Other') === cat);
+      const catVydaje6m = vydaje6m.docs.filter(d => (d.data().kategorie || 'Other') === cat);
+      const catVydaje3m = vydaje3m.docs.filter(d => (d.data().kategorie || 'Other') === cat);
+
+      // Category volatility: variance in spending
+      const catTotal12m = calcTotal({ docs: catVydaje12m });
+      const catTotal6m = calcTotal({ docs: catVydaje6m });
+      const catTotal3m = calcTotal({ docs: catVydaje3m });
+      const catMedian = calcMedian({ docs: catVydaje12m });
+
+      const catVolatility = catMedian > 0 ? Math.abs(catTotal12m - catTotal6m) / catMedian : 0;
+      expenseCategoryVolatility[cat] = Math.round(catVolatility * 100) / 100;
+
+      // Category trend: 3m vs 12m
+      const catTrend = catTotal12m > 0 ? (catTotal3m - catTotal12m) / catTotal12m : 0;
+      expenseCategoryTrend[cat] = Math.round(catTrend * 100) / 100;
+    });
+
+    // Identify stable and volatile categories
+    const volatilityEntries = Object.entries(expenseCategoryVolatility).sort((a, b) => a[1] - b[1]);
+    topStableCategories.push(...volatilityEntries.slice(0, 2).map(e => e[0]));
+    topVolatileCategories.push(...volatilityEntries.slice(-2).map(e => e[0]).reverse());
+
     return {
       avgExpense3m: calcAvg(vydaje3m, 3),
       avgExpense6m: calcAvg(vydaje6m, 6),
@@ -4415,6 +4806,10 @@ const extractUserFeatures = async (uid) => {
       categoryAverages12m: Object.fromEntries(
         Object.entries(categoryTotals12m).map(([cat, total]) => [cat, total / 12])
       ),
+      expenseCategoryVolatility,
+      expenseCategoryTrend,
+      topStableCategories,
+      topVolatileCategories,
       monthOverMonthExpenseTrend: vydaje12m.size > 0 ? (calcTotal(vydaje3m) - calcTotal(vydaje12m)) / calcTotal(vydaje12m) : 0,
       monthOverMonthIncomeTrend: prijmy12m.size > 0 ? (calcTotal(prijmy3m) - calcTotal(prijmy12m)) / calcTotal(prijmy12m) : 0,
       largestExpenseCategory: topExpenseCategories[0] || null,
@@ -4579,6 +4974,8 @@ exports.adminGenerateAiProfile = functions.region(REGION).https.onRequest(async 
         generatedAt: admin.firestore.FieldValue.serverTimestamp(),
         sourceDataUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
         profileStale: false,
+        staleSince: null,
+        lastAutoRegeneratedAt: admin.firestore.FieldValue.serverTimestamp(),
         staleReason: [],
         lastTransactionAt: lastTransactionAt ? admin.firestore.Timestamp.fromDate(lastTransactionAt) : null,
         lastFeedbackAt: lastFeedbackAt || null,
@@ -4592,6 +4989,11 @@ exports.adminGenerateAiProfile = functions.region(REGION).https.onRequest(async 
         medianMonthlyIncome: Math.round(features.avgIncome12m * 0.95),
         topExpenseCategories: features.topExpenseCategories || [],
         topIncomeCategories: ['Salary'],
+        // Category-level signals for personalization
+        expenseCategoryVolatility: features.expenseCategoryVolatility || {},
+        expenseCategoryTrend: features.expenseCategoryTrend || {},
+        topStableCategories: features.topStableCategories || [],
+        topVolatileCategories: features.topVolatileCategories || [],
         expenseVolatility: Math.round(features.volatilityScore * 100) / 100,
         incomeRegularity: Math.round(features.regularityScore * 100) / 100,
         savingsTrend: Math.round(features.monthOverMonthIncomeTrend * 100) / 100,
@@ -4931,4 +5333,138 @@ exports.adminRegenerateStaleProfiles = functions.region(REGION).https.onRequest(
     }
   });
 });
+
+// Scheduled: Auto-regenerate AI profiles that are stale for >24 hours
+exports.autoRegenerateStaleAiProfiles = functions
+  .region(REGION)
+  .pubsub.schedule('0 3 * * *')
+  .timeZone('Europe/Prague')
+  .onRun(async (context) => {
+    try {
+      const now = new Date();
+      const cutoff24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      const usersSnap = await db.collection('users').get();
+
+      let processed = 0;
+      let regenerated = 0;
+      let errors = [];
+
+      // Check each user's profile for staleness >24h
+      for (const userDoc of usersSnap.docs) {
+        try {
+          processed++;
+          const profileDoc = await db.collection('users').doc(userDoc.id).collection('aiProfile').doc('summary').get();
+
+          if (!profileDoc.exists) {
+            continue;
+          }
+
+          const profile = profileDoc.data();
+
+          // Skip if profile is fresh
+          if (!profile.profileStale) {
+            continue;
+          }
+
+          // Skip if staleSince not set (shouldn't happen, but safety check)
+          if (!profile.staleSince) {
+            continue;
+          }
+
+          const staleSinceDate = profile.staleSince?.toDate ? profile.staleSince.toDate() : profile.staleSince;
+
+          // Only regenerate if stale for >24 hours
+          if (staleSinceDate > cutoff24h) {
+            continue;  // Not yet 24 hours
+          }
+
+          // Regenerate this profile
+          const features = await extractUserFeatures(userDoc.id);
+
+          // Load last transaction and feedback timestamps
+          const vydaje = await db.collection('users').doc(userDoc.id).collection('vydaje')
+            .orderBy('datum', 'desc')
+            .limit(1)
+            .get();
+          const lastVydaj = vydaje.docs[0]?.data();
+
+          const prijmy = await db.collection('users').doc(userDoc.id).collection('prijmy')
+            .orderBy('datum', 'desc')
+            .limit(1)
+            .get();
+          const lastPrijmy = prijmy.docs[0]?.data();
+
+          const vydajDate = lastVydaj?.datum ? new Date(lastVydaj.datum) : null;
+          const prijmyDate = lastPrijmy?.datum ? new Date(lastPrijmy.datum) : null;
+          const lastTransactionAt = [vydajDate, prijmyDate]
+            .filter(d => d !== null)
+            .sort((a, b) => b.getTime() - a.getTime())[0] || null;
+
+          const feedback = await db.collection('trainingData')
+            .where('userId', '==', userDoc.id)
+            .where('status', '==', 'approved')
+            .orderBy('createdAt', 'desc')
+            .limit(1)
+            .get();
+          const lastFeedbackAt = feedback.docs[0]?.data()?.createdAt || null;
+
+          const expenseData = Object.values(features.categoryTotals12m);
+          const medianExpense = expenseData.length > 0
+            ? expenseData.sort((a, b) => a - b)[Math.floor(expenseData.length / 2)]
+            : 0;
+
+          const newProfile = {
+            userId: userDoc.id,
+            generatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            sourceDataUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            profileStale: false,
+            staleSince: null,
+            lastAutoRegeneratedAt: admin.firestore.FieldValue.serverTimestamp(),
+            staleReason: [],
+            lastTransactionAt: lastTransactionAt ? admin.firestore.Timestamp.fromDate(lastTransactionAt) : null,
+            lastFeedbackAt: lastFeedbackAt || null,
+            dataCoverageMonths: 12,
+            transactionCount: Object.values(features.categoryTotals12m).length,
+            expenseCount: Object.values(features.categoryTotals12m).reduce((a, b) => a + b, 0) > 0 ? 12 : 0,
+            incomeCount: features.avgIncome12m > 0 ? 12 : 0,
+            avgMonthlyExpense: Math.round(features.avgExpense12m),
+            avgMonthlyIncome: Math.round(features.avgIncome12m),
+            medianMonthlyExpense: Math.round(medianExpense),
+            medianMonthlyIncome: Math.round(features.avgIncome12m * 0.95),
+            topExpenseCategories: features.topExpenseCategories || [],
+            topIncomeCategories: ['Salary'],
+            expenseCategoryVolatility: features.expenseCategoryVolatility || {},
+            expenseCategoryTrend: features.expenseCategoryTrend || {},
+            topStableCategories: features.topStableCategories || [],
+            topVolatileCategories: features.topVolatileCategories || [],
+            expenseVolatility: Math.round(features.volatilityScore * 100) / 100,
+            incomeRegularity: Math.round(features.regularityScore * 100) / 100,
+            savingsTrend: Math.round(features.monthOverMonthIncomeTrend * 100) / 100,
+            dominantSpendingPattern: features.largestExpenseCategory || 'Mixed',
+            seasonalitySignals: 'Low seasonality detected',
+            feedbackAdjustedBias: features.avgFinalCorrectionFactor - 1.0,
+            confidenceScore: Math.min(100, Math.round(Math.max(0, (features.feedbackCount * 10 + 60)))),
+            profileVersion: '1.0',
+            humanReadableExplanation: '',
+            features,
+          };
+
+          newProfile.humanReadableExplanation = generateHumanReadableExplanation(newProfile);
+
+          await db.collection('users').doc(userDoc.id).collection('aiProfile').doc('summary').set(newProfile);
+          regenerated++;
+        } catch (err) {
+          logger.error(`[AUTO_REGEN] Failed for user ${userDoc.id}:`, err.message);
+          errors.push({ userId: userDoc.id, error: err.message });
+        }
+      }
+
+      logger.log(`[AUTO_REGEN] Complete: processed=${processed}, regenerated=${regenerated}, errors=${errors.length}`);
+      if (errors.length > 0) {
+        logger.warn('[AUTO_REGEN] Errors:', JSON.stringify(errors));
+      }
+    } catch (err) {
+      logger.error('[AUTO_REGEN] Scheduled function error:', err.message);
+    }
+  });
 

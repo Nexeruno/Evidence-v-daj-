@@ -1,16 +1,16 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Helper - kontrola admin role
+    // Helper - kontrola admin role (admin + ml_admin)
     function isAdmin(uid) {
       return uid != null &&
-        get(/databases/$(database)/documents/users/$(uid)).data.role == 'admin';
+        get(/databases/$(database)/documents/users/$(uid)).data.role in ['admin', 'ml_admin'];
     }
 
     // Helper - admin allow read (fallback)
     function isAdminCanRead(uid) {
       return uid != null &&
-        (get(/databases/$(database)/documents/users/$(uid)).data.role == 'admin' ||
+        (get(/databases/$(database)/documents/users/$(uid)).data.role in ['admin', 'ml_admin'] ||
          request.auth.token.admin == true);
     }
 
@@ -26,22 +26,26 @@ service cloud.firestore {
       allow write: if isOwner(uid) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'disabled'])
                    || isAdmin(request.auth.uid);
 
-      // Transakce (vydaje, prijmy)
+      // Transakce (vydaje, prijmy) — owner nebo admin/ml_admin
       match /vydaje/{document=**} {
-        allow read, write: if isOwner(uid);
+        allow read: if isOwner(uid) || isAdmin(request.auth.uid);
+        allow write: if isOwner(uid);
       }
       match /prijmy/{document=**} {
-        allow read, write: if isOwner(uid);
+        allow read: if isOwner(uid) || isAdmin(request.auth.uid);
+        allow write: if isOwner(uid);
       }
 
-      // Opakující se transakce
+      // Opakující se transakce — owner nebo admin read
       match /repeatingTransactions/{document=**} {
-        allow read, write: if isOwner(uid);
+        allow read: if isOwner(uid) || isAdmin(request.auth.uid);
+        allow write: if isOwner(uid);
       }
 
-      // Čekající transakce (pending)
+      // Čekající transakce (pending) — owner nebo admin read
       match /pendingTransactions/{document=**} {
-        allow read, write: if isOwner(uid);
+        allow read: if isOwner(uid) || isAdmin(request.auth.uid);
+        allow write: if isOwner(uid);
       }
 
       // ML Predictions — user čte svoje predikce, admin vidí všechny, CF píše, user skrývá
@@ -50,6 +54,30 @@ service cloud.firestore {
         allow write: if false;  // Jen Cloud Functions (Admin SDK)
         allow update: if isOwner(uid) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['hidden']);
       }
+
+      // AI Profile — admin read, CF write
+      match /aiProfile/{document=**} {
+        allow read: if isOwner(uid) || isAdmin(request.auth.uid);
+        allow write: if false;  // Jen Cloud Functions (Admin SDK)
+      }
+    }
+
+    // Training Data — admin/ml_admin čte vše, CF píše
+    match /trainingData/{document=**} {
+      allow read: if isAdmin(request.auth.uid);
+      allow write: if false;  // Jen Cloud Functions (Admin SDK)
+    }
+
+    // ML Debug Logs — admin čte, CF píše
+    match /mlDebugLogs/{document=**} {
+      allow read: if isAdmin(request.auth.uid);
+      allow write: if false;  // Jen Cloud Functions (Admin SDK)
+    }
+
+    // ML Pipeline Status — admin čte, CF píše
+    match /mlPipelineStatus/{document=**} {
+      allow read: if isAdmin(request.auth.uid);
+      allow write: if false;  // Jen Cloud Functions (Admin SDK)
     }
 
     // System Alerts (admin monitoring)

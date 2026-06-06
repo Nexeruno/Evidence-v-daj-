@@ -9,6 +9,7 @@ import {
   where,
   getDocs
 } from 'firebase/firestore'
+import { useAdminUserSelector, userLabel } from '@/hooks/useAdminUserSelector'
 
 interface RawTransaction {
   id: string
@@ -60,12 +61,18 @@ interface L2Prediction {
 export function TrainingDataPage() {
   const { user } = useAuth()
   const { role: userRole } = useUserRole(user)
+  const isAdmin = ['admin', 'ml_admin'].includes(userRole)
+  const { users, usersLoading, selectedUserId, selectedUser, selectUser } = useAdminUserSelector()
+
+  // Effective uid: admin uses selector, regular user uses their own
+  const effectiveUid = isAdmin ? selectedUserId : (user?.uid || '')
 
   const [rawTransactions, setRawTransactions] = useState<RawTransaction[]>([])
   const [trainingData, setTrainingData] = useState<TrainingDataRecord[]>([])
   const [l2Predictions, setL2Predictions] = useState<L2Prediction[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [predictionsError, setPredictionsError] = useState<string | null>(null)
 
   // Filter states for Raw Transactions
   const [transactionTypeFilter, setTransactionTypeFilter] = useState<'all' | 'vydaj' | 'prijem'>('all')
@@ -74,113 +81,118 @@ export function TrainingDataPage() {
   const [searchText, setSearchText] = useState('')
   const [statusMessage] = useState<string>('')
 
-  // Load raw transactions and training data
+  // Reload when selected user changes
   useEffect(() => {
-    if (!user || !['admin', 'ml_admin'].includes(userRole)) {
+    if (!user || !isAdmin) {
       setError('Only admin/ml_admin can view training data')
       return
     }
-
+    if (!effectiveUid) return
     loadData()
-  }, [user, userRole])
+  }, [user, userRole, effectiveUid]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadData = async () => {
     setLoading(true)
     setError(null)
+    setPredictionsError(null)
+
+    const uid = effectiveUid
+
+    // ── 1. Raw transactions (vydaje + prijmy) ───────────────────────────────
     try {
-      // Load raw transactions (vydaje + prijmy)
       const transactions: RawTransaction[] = []
-
-      // Get all users
-      const usersSnap = await getDocs(collection(db, 'users'))
-      const userIds = usersSnap.docs.map(doc => doc.id)
-
-      // Load vydaje and prijmy for each user
-      for (const uid of userIds) {
-        // Vydaje
-        const vydajeSnap = await getDocs(collection(db, 'users', uid, 'vydaje'))
-        vydajeSnap.docs.forEach(doc => {
-          const data = doc.data()
-          transactions.push({
-            id: doc.id,
-            userId: uid,
-            type: 'vydaj',
-            datum: data.datum || '',
-            castka: Number(data.castka) || 0,
-            kategorie: data.kategorie,
-            nazev: data.nazev,
-            popis: data.popis,
-            sourcePath: `users/${uid}/vydaje/${doc.id}`,
-            createdAt: data.createdAt,
-            mlEligible: validateTransaction(data),
-            validationIssues: getValidationIssues(data),
-          })
-        })
-
-        // Prijmy
-        const prijmySnap = await getDocs(collection(db, 'users', uid, 'prijmy'))
-        prijmySnap.docs.forEach(doc => {
-          const data = doc.data()
-          transactions.push({
-            id: doc.id,
-            userId: uid,
-            type: 'prijem',
-            datum: data.datum || '',
-            castka: Number(data.castka) || 0,
-            kategorie: data.kategorie,
-            nazev: data.nazev,
-            popis: data.popis,
-            sourcePath: `users/${uid}/prijmy/${doc.id}`,
-            createdAt: data.createdAt,
-            mlEligible: validateTransaction(data),
-            validationIssues: getValidationIssues(data),
-          })
-        })
+      // uid='' means all users
+      let userIds: string[]
+      if (uid) {
+        userIds = [uid]
+      } else {
+        const usersSnap = await getDocs(collection(db, 'users'))
+        userIds = usersSnap.docs.map(d => d.id)
       }
 
-      // Load training data (l2 feedback)
-      const trainingSnap = await getDocs(
-        query(
-          collection(db, 'trainingData'),
-          where('type', 'in', ['l2_manual_feedback', 'l2_auto_feedback'])
-        )
-      )
+      for (const uid of userIds) {
+        try {
+          const vydajeSnap = await getDocs(collection(db, 'users', uid, 'vydaje'))
+          vydajeSnap.docs.forEach(doc => {
+            const data = doc.data()
+            transactions.push({
+              id: doc.id, userId: uid, type: 'vydaj',
+              datum: data.datum || '', castka: Number(data.castka) || 0,
+              kategorie: data.kategorie, nazev: data.nazev, popis: data.popis,
+              sourcePath: `users/${uid}/vydaje/${doc.id}`,
+              createdAt: data.createdAt,
+              mlEligible: validateTransaction(data),
+              validationIssues: getValidationIssues(data),
+            })
+          })
+        } catch { /* skip user on error */ }
+
+        try {
+          const prijmySnap = await getDocs(collection(db, 'users', uid, 'prijmy'))
+          prijmySnap.docs.forEach(doc => {
+            const data = doc.data()
+            transactions.push({
+              id: doc.id, userId: uid, type: 'prijem',
+              datum: data.datum || '', castka: Number(data.castka) || 0,
+              kategorie: data.kategorie, nazev: data.nazev, popis: data.popis,
+              sourcePath: `users/${uid}/prijmy/${doc.id}`,
+              createdAt: data.createdAt,
+              mlEligible: validateTransaction(data),
+              validationIssues: getValidationIssues(data),
+            })
+          })
+        } catch { /* skip user on error */ }
+      }
+      setRawTransactions(transactions)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load transactions')
+    }
+
+    // ── 2. Training feedback (trainingData collection) ──────────────────────
+    try {
+      const feedbackQuery = uid
+        ? query(collection(db, 'trainingData'), where('userId', '==', uid), where('type', 'in', ['l2_manual_feedback', 'l2_auto_feedback']))
+        : query(collection(db, 'trainingData'), where('type', 'in', ['l2_manual_feedback', 'l2_auto_feedback']))
+      const trainingSnap = await getDocs(feedbackQuery)
       const feedbackRecords: TrainingDataRecord[] = trainingSnap.docs.map(doc => {
         const data = doc.data()
         return {
           id: doc.id,
           type: data.type,
-          userId: data.userId,
+          userId: data.userId || '—',
           predictionId: data.predictionId,
-          month: data.month,
-          predictedTotal: data.predictedTotal,
-          actualTotal: data.actualTotal,
-          errorAmount: data.errorAmount,
-          errorPercent: data.errorPercent,
-          source: data.source,
-          status: data.status,
+          month: data.month || '—',
+          predictedTotal: Number(data.predictedTotal) || 0,
+          actualTotal: Number(data.actualTotal) || 0,
+          errorAmount: Number(data.errorAmount) || 0,
+          errorPercent: Number(data.errorPercent) || 0,
+          source: data.source || '—',
+          status: data.status || '—',
           createdAt: data.createdAt,
         }
       })
+      setTrainingData(feedbackRecords)
+    } catch (err) {
+      // non-fatal: show empty feedback section
+      console.warn('Failed to load training feedback:', err)
+    }
 
-      // Load L2 shadow predictions
-      const predictionsSnap = await getDocs(
-        query(
-          collectionGroup(db, 'mlPredictions'),
-          where('pipelineLevel', '==', 2),
-          where('shadowMode', '==', true)
-        )
-      )
+    // ── 3. L2 shadow predictions ─────────────────────────────────────────────
+    try {
+      const predictionsSnap = uid
+        ? await getDocs(query(collection(db, 'users', uid, 'mlPredictions'), where('pipelineLevel', '==', 2)))
+        : await getDocs(query(collectionGroup(db, 'mlPredictions'), where('pipelineLevel', '==', 2)))
       const predictions: L2Prediction[] = predictionsSnap.docs.map(doc => {
         const data = doc.data()
+        const resolvedUid = uid || doc.ref.parent.parent?.id || '—'
         return {
           id: doc.id,
-          userId: doc.ref.parent.parent!.id,
-          month: data.month,
+          userId: resolvedUid,
+          month: data.month || '—',
           pipelineLevel: data.pipelineLevel,
           shadowMode: data.shadowMode,
           active: data.active,
-          totalPredictedExpense: data.totalPredictedExpense,
+          totalPredictedExpense: Number(data.totalPredictedExpense) || 0,
           trainingDataUsed: data.trainingDataUsed || false,
           trainingDataCount: data.trainingDataCount,
           manualFeedbackCount: data.manualFeedbackCount,
@@ -190,15 +202,17 @@ export function TrainingDataPage() {
           modelVersion: data.modelVersion,
         }
       })
-
-      setRawTransactions(transactions)
-      setTrainingData(feedbackRecords)
       setL2Predictions(predictions)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load data')
-    } finally {
-      setLoading(false)
+      const msg = err instanceof Error ? err.message : 'Failed to load predictions'
+      setPredictionsError(
+        msg.includes('index') || msg.includes('requires an index')
+          ? 'Firestore index missing for mlPredictions collectionGroup query. Run the shadow pipeline at least once to create predictions, then add the composite index.'
+          : msg
+      )
     }
+
+    setLoading(false)
   }
 
   const validateTransaction = (data: any): boolean => {
@@ -251,6 +265,34 @@ export function TrainingDataPage() {
         <p className="text-sm text-light-textMuted dark:text-dark-textMuted mt-1">
           📊 Raw learning data (transactions), training feedback, and L2 shadow predictions
         </p>
+      </div>
+
+      {/* User selector */}
+      <div className="card rounded-lg p-4 flex flex-wrap items-center gap-4">
+        <div className="flex items-center gap-3 flex-1 min-w-[260px]">
+          <label className="text-sm font-semibold text-light-text dark:text-dark-text whitespace-nowrap">
+            Viewing user:
+          </label>
+          {usersLoading ? (
+            <span className="text-sm text-light-textMuted dark:text-dark-textMuted">Loading users…</span>
+          ) : (
+            <select
+              value={selectedUserId}
+              onChange={e => selectUser(e.target.value)}
+              className="flex-1 px-3 py-2 rounded border border-light-border dark:border-dark-border bg-light-bg dark:bg-dark-bg text-sm text-light-text dark:text-dark-text"
+            >
+              <option value="">— All Users —</option>
+              {users.map(u => (
+                <option key={u.id} value={u.id}>
+                  {u.displayName ? `${u.displayName} — ${u.email || u.id}` : (u.email || u.id)}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+        <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded px-3 py-1.5 text-sm text-blue-700 dark:text-blue-300">
+          Viewing data for: <strong>{effectiveUid ? userLabel(selectedUser) : 'All Users'}</strong>
+        </div>
       </div>
 
       {statusMessage && (
@@ -413,7 +455,10 @@ export function TrainingDataPage() {
         {loading ? (
           <div className="text-center py-8 text-light-textMuted">Loading feedback...</div>
         ) : trainingData.length === 0 ? (
-          <div className="text-center py-8 text-light-textMuted">No training feedback yet</div>
+          <div className="text-center py-8 text-light-textMuted">
+            <p>No training feedback yet.</p>
+            <p className="text-xs mt-1">Add manual feedback via ML Predictions → Add Feedback, or run auto-feedback generation in ML Model Control.</p>
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
@@ -465,8 +510,15 @@ export function TrainingDataPage() {
 
         {loading ? (
           <div className="text-center py-8 text-light-textMuted">Loading predictions...</div>
+        ) : predictionsError ? (
+          <div className="p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 text-sm">
+            ⚠️ {predictionsError}
+          </div>
         ) : l2Predictions.length === 0 ? (
-          <div className="text-center py-8 text-light-textMuted">No L2 shadow predictions yet</div>
+          <div className="text-center py-8 text-light-textMuted">
+            <p>No L2 shadow predictions yet.</p>
+            <p className="text-xs mt-1">Run the L2 Shadow Pipeline in ML Model Control to generate predictions.</p>
+          </div>
         ) : (
           <div className="grid grid-cols-1 gap-3">
             {l2Predictions.map(pred => (

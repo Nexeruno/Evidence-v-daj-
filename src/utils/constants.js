@@ -18,18 +18,22 @@ export const KATEGORIE_VYDAJ = [
   { value: 'vse', label: 'Všechny kategorie výdajů' },
   { value: 'doprava', label: 'Doprava' },
   { value: 'jidlo', label: 'Jídlo' },
+  { value: 'napoje', label: 'Nápoje' },
   { value: 'bydleni', label: 'Bydlení' },
   { value: 'sporeni', label: 'Spoření' },
   { value: 'zabava', label: 'Zábava' },
+  { value: 'splatky', label: 'Splátky' },
   { value: 'ostatni', label: 'Ostatní' },
 ];
 
 export const KATEGORIE_VYDAJ_FORM = [
   { value: 'doprava', label: 'Doprava' },
   { value: 'jidlo', label: 'Jídlo' },
+  { value: 'napoje', label: 'Nápoje' },
   { value: 'bydleni', label: 'Bydlení' },
   { value: 'sporeni', label: 'Spoření' },
   { value: 'zabava', label: 'Zábava' },
+  { value: 'splatky', label: 'Splátky' },
   { value: 'ostatni', label: 'Ostatní' },
 ];
 
@@ -39,6 +43,7 @@ export const KATEGORIE_PRIJEM = [
   { value: 'brigada', label: 'Brigáda' },
   { value: 'prodej', label: 'Prodej' },
   { value: 'prispevky', label: 'Příspěvky' },
+  { value: 'dary', label: 'Dary' },
   { value: 'ostatni', label: 'Ostatní' },
 ];
 
@@ -47,6 +52,7 @@ export const KATEGORIE_PRIJEM_FORM = [
   { value: 'brigada', label: 'Brigáda' },
   { value: 'prodej', label: 'Prodej' },
   { value: 'prispevky', label: 'Příspěvky' },
+  { value: 'dary', label: 'Dary' },
   { value: 'ostatni', label: 'Ostatní' },
 ];
 
@@ -60,5 +66,8 @@ export const CATEGORY_LABELS = {
   brigada: 'Brigáda',
   prodej: 'Prodej',
   prispevky: 'Příspěvky',
+  dary: 'Dary',
   ostatni: 'Ostatní',
+  napoje: 'Nápoje',
+  splatky: 'Splátky',
 };

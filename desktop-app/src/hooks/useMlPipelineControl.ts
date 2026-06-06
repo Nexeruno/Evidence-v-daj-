@@ -167,6 +167,29 @@ export function useMlPipelineControl() {
     }
   }, [])
 
+  const runLevel1Pipeline = useCallback(async (idToken: string) => {
+    setLoading(true)
+    setError(null)
+
+    try {
+      if (!window.ipcApi) {
+        throw new Error('IPC API not available')
+      }
+      const result = await window.ipcApi.callCloudFunction(
+        'testMlPipeline',
+        idToken,
+        {}
+      )
+      return result
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error('Unknown error')
+      setError(error)
+      throw error
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
   const runLevel2ShadowPipeline = useCallback(async (idToken: string) => {
     setLoading(true)
     setError(null)
@@ -248,6 +271,7 @@ export function useMlPipelineControl() {
   )
 
   return {
+    runLevel1Pipeline,
     runLevel2Pipeline,
     runLevel2ShadowPipeline,
     createL2TrainingFeedback,

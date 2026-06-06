@@ -46,12 +46,12 @@ export function MlDashboardPage() {
     if (settingsError)   return 'Prediction settings could not be loaded.'
     if (isL2Active)      return 'Level 2 is active. Shadow accuracy is no longer the primary metric.'
     if (isL2Shadow) {
-      const l2Runs = recentRuns.filter((r: any) => r.level === 2 && r.accuracy)
+      const l2Runs = recentRuns.filter((r: any) => r.pipelineLevel === 2 && r.averageConfidence)
       if (!l2Runs.length) return 'Not enough evaluation data yet.'
-      const avg = l2Runs.reduce((s: number, r: any) => s + r.accuracy, 0) / l2Runs.length
-      return `Shadow Accuracy: ${(avg * 100).toFixed(1)}%`
+      const avg = l2Runs.reduce((s: number, r: any) => s + (r.averageConfidence ?? 0), 0) / l2Runs.length
+      return `Avg L2 Confidence: ${avg.toFixed(1)}%`
     }
-    return 'Shadow accuracy unavailable because Level 2 is inactive.'
+    return 'Shadow confidence unavailable because Level 2 is inactive.'
   })()
 
   const STATUS_BADGE: Record<string, string> = {
@@ -160,13 +160,13 @@ export function MlDashboardPage() {
         <div className="card rounded-lg p-5">
           <p className="text-xs text-light-textMuted dark:text-dark-textMuted uppercase tracking-wide font-semibold">Recent Runs (L1)</p>
           <p className="text-3xl font-bold mt-2 text-light-text dark:text-dark-text">
-            {runsLoading ? '…' : recentRuns.filter((r: any) => r.level === 1).length}
+            {runsLoading ? '…' : recentRuns.filter((r: any) => r.pipelineLevel === 1).length}
           </p>
         </div>
         <div className="card rounded-lg p-5">
           <p className="text-xs text-light-textMuted dark:text-dark-textMuted uppercase tracking-wide font-semibold">Recent Runs (L2)</p>
           <p className="text-3xl font-bold mt-2 text-light-text dark:text-dark-text">
-            {runsLoading ? '…' : recentRuns.filter((r: any) => r.level === 2).length}
+            {runsLoading ? '…' : recentRuns.filter((r: any) => r.pipelineLevel === 2).length}
           </p>
         </div>
         <div className="card rounded-lg p-5">
@@ -196,7 +196,7 @@ export function MlDashboardPage() {
             <table className="w-full text-sm">
               <thead className="bg-light-border dark:bg-dark-border">
                 <tr>
-                  {['Timestamp', 'Level', 'Status', 'Accuracy', 'Time (ms)'].map(h => (
+                  {['Started', 'Level', 'Status', 'Confidence / Predictions', 'Duration'].map(h => (
                     <th key={h} className="px-6 py-3 text-left font-semibold text-light-text dark:text-dark-text">{h}</th>
                   ))}
                 </tr>
@@ -205,21 +205,23 @@ export function MlDashboardPage() {
                 {recentRuns.map((run: any) => (
                   <tr key={run.id} className="hover:bg-light-bg dark:hover:bg-dark-bg transition-colors">
                     <td className="px-6 py-4 text-light-text dark:text-dark-text text-xs">
-                      {run.timestamp ? new Date(run.timestamp).toLocaleString() : '—'}
+                      {run.startedAt
+                        ? new Date(run.startedAt.seconds ? run.startedAt.seconds * 1000 : run.startedAt).toLocaleString()
+                        : '—'}
                     </td>
-                    <td className={`px-6 py-4 font-semibold ${run.level === 1 ? 'text-green-600 dark:text-green-400' : 'text-blue-600 dark:text-blue-400'}`}>
-                      L{run.level}
+                    <td className={`px-6 py-4 font-semibold ${run.pipelineLevel === 1 ? 'text-green-600 dark:text-green-400' : 'text-blue-600 dark:text-blue-400'}`}>
+                      L{run.pipelineLevel ?? '?'}
                     </td>
                     <td className="px-6 py-4">
                       <span className={`px-2 py-1 rounded text-xs font-semibold ${getRunStatusClasses(run.status)}`}>
-                        {run.status}
+                        {run.status ?? '—'}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-light-text dark:text-dark-text">
-                      {run.accuracy ? `${(run.accuracy * 100).toFixed(1)}%` : '—'}
+                      {run.averageConfidence ? `${run.averageConfidence.toFixed(1)}%` : run.predictionsCreated != null ? `${run.predictionsCreated} pred.` : '—'}
                     </td>
                     <td className="px-6 py-4 text-light-text dark:text-dark-text">
-                      {run.processingTime ?? '—'}
+                      {run.durationMs ? `${(run.durationMs / 1000).toFixed(1)}s` : '—'}
                     </td>
                   </tr>
                 ))}
@@ -247,6 +249,8 @@ export function MlDashboardPage() {
   settingsError: settingsError ?? null,
   runsLoading,
   runsError: runsError?.message ?? null,
+  runsCount: recentRuns.length,
+  firstRun: recentRuns[0] ?? null,
 }, null, 2)}
           </pre>
         )}

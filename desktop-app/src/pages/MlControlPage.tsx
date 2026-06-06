@@ -1,8 +1,43 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/auth/AuthProvider'
 import { useUserRole } from '@/hooks/useUserRole'
 import { useMlSystemHealth, type MlRun, type MlDebugLog } from '@/hooks/useMlSystemHealth'
 import { useMlPipelineControl, usePredictionSettings, type PredictionSettings } from '@/hooks/useMlPipelineControl'
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface L2RunSummary {
+  runId: string
+  status: string
+  averageConfidence: number
+  averageFinalCorrectionFactor: number
+  staleProfileCount: number
+  missingProfileCount: number
+  personalizedPredictionCount: number
+  fallbackPredictionCount: number
+  predictionsCreated: number
+  usersProcessed: number
+  usersTotal: number
+  startedAt?: any
+  finishedAt?: any
+  durationMs?: number
+}
+
+interface L2RunRecord {
+  id: string
+  runId: string
+  status: string
+  startedAt: any
+  durationMs?: number
+  predictionsCreated: number
+  usersProcessed: number
+  usersTotal: number
+  averageConfidence: number
+  personalizedPredictionCount: number
+  staleProfileCount: number
+  missingProfileCount: number
+  fallbackPredictionCount: number
+}
 
 // ─── Helper components ────────────────────────────────────────────────────────
 
@@ -88,7 +123,7 @@ function LogLevelBadge({ level }: { level: string }) {
 export function MlControlPage() {
   const { user, getIdToken } = useAuth()
   const { role: userRole } = useUserRole(user)
-  const { updatePredictionSettings, runLevel2ShadowPipeline, generateL2AutoFeedback } = useMlPipelineControl()
+  const { updatePredictionSettings, runLevel1Pipeline, runLevel2ShadowPipeline, generateL2AutoFeedback } = useMlPipelineControl()
   const { settings, loading: settingsLoading, error: settingsError, reload: reloadSettings } = usePredictionSettings()
   const { health, loading: healthLoading, error: healthError, lastLoaded, reload: reloadHealth } = useMlSystemHealth()
 
@@ -101,6 +136,52 @@ export function MlControlPage() {
   const [autoFeedbackLoading, setAutoFeedbackLoading] = useState(false)
   const [debugLogFilter, setDebugLogFilter] = useState<'all' | 'info' | 'warning' | 'error'>('all')
   const [selectedDebugLog, setSelectedDebugLog] = useState<MlDebugLog | null>(null)
+  const [lastL2RunSummary, setLastL2RunSummary] = useState<L2RunSummary | null>(null)
+  const [loadingL2Summary, setLoadingL2Summary] = useState(false)
+  const [l2SummaryDebug, setL2SummaryDebug] = useState<string | null>(null)
+  const [recentL2Runs, setRecentL2Runs] = useState<L2RunRecord[]>([])
+  const [loadingRecentRuns, setLoadingRecentRuns] = useState(false)
+
+  const loadL2Data = useCallback(async () => {
+    try {
+      setLoadingL2Summary(true)
+      setLoadingRecentRuns(true)
+      const token = await getIdToken()
+      if (!token || !window.ipcApi) return
+
+      const [summaryResult, runsResult] = await Promise.all([
+        window.ipcApi.callCloudFunction('adminGetLatestL2RunSummary', token, {}),
+        window.ipcApi.callCloudFunction('adminGetRecentL2Runs', token, {}),
+      ])
+
+      // Debug: capture what the backend actually returned
+      setL2SummaryDebug(
+        `ok:${summaryResult?.ok} | hasData:${!!summaryResult?.data} | msg:${summaryResult?.message || '—'} | err:${summaryResult?.error || '—'}`
+      )
+
+      if (summaryResult?.ok && summaryResult.data) {
+        setLastL2RunSummary(summaryResult.data)
+      } else {
+        setLastL2RunSummary(null)
+      }
+
+      if (runsResult?.ok && Array.isArray(runsResult.data)) {
+        setRecentL2Runs(runsResult.data)
+      } else {
+        setRecentL2Runs([])
+      }
+    } catch (err) {
+      console.error('Failed to load L2 data:', err)
+      setL2SummaryDebug(`Error: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setLoadingL2Summary(false)
+      setLoadingRecentRuns(false)
+    }
+  }, [getIdToken])
+
+  useEffect(() => {
+    loadL2Data()
+  }, [loadL2Data])
 
   // ── Prediction mode helpers ──────────────────────────────────────────────
   const isL2Active =
@@ -235,6 +316,91 @@ export function MlControlPage() {
   const allLogs: MlDebugLog[] = health?.recentDebugLogs ?? []
   const filteredLogs = debugLogFilter === 'all' ? allLogs : allLogs.filter(l => l.level === debugLogFilter)
 
+  // ─── Helper: Calculate deltas for recent runs ──────────────────────────────
+  const getRunWithDelta = (run: L2RunRecord, prevRun?: L2RunRecord) => {
+    return {
+      ...run,
+      confidenceDelta: prevRun ? run.averageConfidence - prevRun.averageConfidence : null,
+      fallbackDelta: prevRun ? run.fallbackPredictionCount - prevRun.fallbackPredictionCount : null,
+      staleDelta: prevRun ? run.staleProfileCount - prevRun.staleProfileCount : null,
+    }
+  }
+
+  const runsWithDeltas = recentL2Runs.map((run, idx) => getRunWithDelta(run, recentL2Runs[idx + 1]))
+
+  // ─── Trend assessment from last 2 runs ────────────────────────────────────
+  type TrendStatus = 'improving' | 'stable' | 'needs_attention' | 'insufficient_data'
+  interface TrendAssessment {
+    status: TrendStatus
+    label: string
+    explanation: string
+    topReasons: string[]
+  }
+
+  const trendAssessment: TrendAssessment = (() => {
+    if (runsWithDeltas.length < 2) {
+      return {
+        status: 'insufficient_data',
+        label: 'Insufficient Data',
+        explanation: 'Not enough run history to determine trend.',
+        topReasons: ['Not enough run history to determine top reasons.'],
+      }
+    }
+
+    const latest = runsWithDeltas[0]
+    const prev = recentL2Runs[1]
+    const confDelta = latest.confidenceDelta ?? 0
+    const fallbackDelta = latest.fallbackDelta ?? 0
+    const staleDelta = latest.staleDelta ?? 0
+    const personalizedDelta = latest.personalizedPredictionCount - prev.personalizedPredictionCount
+
+    // Build top reasons (always show, regardless of status)
+    const topReasons: string[] = []
+    if (Math.abs(confDelta) >= 0.1)
+      topReasons.push(confDelta > 0
+        ? `Average confidence increased by ${confDelta.toFixed(1)}%.`
+        : `Average confidence decreased by ${Math.abs(confDelta).toFixed(1)}%.`)
+    if (fallbackDelta !== 0)
+      topReasons.push(fallbackDelta > 0
+        ? `Fallback predictions increased by ${fallbackDelta}.`
+        : `Fallback predictions decreased by ${Math.abs(fallbackDelta)}.`)
+    if (staleDelta !== 0)
+      topReasons.push(staleDelta > 0
+        ? `Stale profiles increased by ${staleDelta}.`
+        : `Stale profiles decreased by ${Math.abs(staleDelta)}.`)
+    if (personalizedDelta !== 0)
+      topReasons.push(personalizedDelta > 0
+        ? `Personalized predictions increased by ${personalizedDelta}.`
+        : `Personalized predictions decreased by ${Math.abs(personalizedDelta)}.`)
+    if (topReasons.length === 0)
+      topReasons.push('No significant changes compared to the previous run.')
+
+    if (confDelta < -1 || fallbackDelta > 1 || staleDelta > 2) {
+      return {
+        status: 'needs_attention',
+        label: 'Needs Attention',
+        explanation: 'One or more quality metrics worsened compared to the previous run.',
+        topReasons,
+      }
+    }
+
+    if (confDelta > 1 && fallbackDelta <= 0 && staleDelta <= 0) {
+      return {
+        status: 'improving',
+        label: 'Improving',
+        explanation: 'Pipeline quality improved compared to the previous run.',
+        topReasons,
+      }
+    }
+
+    return {
+      status: 'stable',
+      label: 'Stable',
+      explanation: 'Run quality is stable compared to the previous run.',
+      topReasons,
+    }
+  })()
+
   return (
     <div className="space-y-6">
       <div>
@@ -260,6 +426,160 @@ export function MlControlPage() {
           ⚠️ Settings error: {settingsError}
           <button onClick={reloadSettings} className="underline shrink-0">Retry</button>
         </div>
+      )}
+
+      {/* ─── L2 Evaluation Summary ──────────────────────────────────────────── */}
+      {isAdmin && (
+        <SectionCard title="L2 Evaluation Summary (Latest Run)" borderColor="border-cyan-500 dark:border-cyan-600">
+          <div className="flex justify-end mb-2">
+            <button
+              onClick={loadL2Data}
+              disabled={loadingL2Summary}
+              className="px-3 py-1 rounded text-xs bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-300 font-semibold"
+            >
+              🔄 Refresh
+            </button>
+          </div>
+          {loadingL2Summary ? (
+            <p className="text-sm text-light-textMuted dark:text-dark-textMuted">Loading latest run data…</p>
+          ) : !lastL2RunSummary ? (
+            <div>
+              <p className="text-sm text-light-textMuted dark:text-dark-textMuted">No L2 shadow runs found. Run the pipeline to generate data.</p>
+              {l2SummaryDebug && (
+                <p className="text-xs font-mono text-amber-600 dark:text-amber-400 mt-2 break-all">Debug: {l2SummaryDebug}</p>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                <StatBox label="Avg Confidence" value={`${lastL2RunSummary.averageConfidence.toFixed(1)}%`} />
+                <StatBox label="Personalized" value={lastL2RunSummary.personalizedPredictionCount} />
+                <StatBox label="Stale Profile" value={lastL2RunSummary.staleProfileCount} />
+                <StatBox label="Missing Profile" value={lastL2RunSummary.missingProfileCount} />
+                <StatBox label="Fallback" value={lastL2RunSummary.fallbackPredictionCount} />
+                <StatBox label="Total Predictions" value={lastL2RunSummary.predictionsCreated} />
+              </div>
+              <div className="text-xs text-light-textMuted dark:text-dark-textMuted pt-2 border-t border-light-border dark:border-dark-border flex gap-6">
+                <span>Status: <strong>{lastL2RunSummary.status}</strong></span>
+                {lastL2RunSummary.durationMs && (
+                  <span>Duration: <strong>{(lastL2RunSummary.durationMs / 1000).toFixed(1)}s</strong></span>
+                )}
+              </div>
+            </div>
+          )}
+        </SectionCard>
+      )}
+
+      {/* ─── L2 Trend Assessment ────────────────────────────────────────────── */}
+      {isAdmin && (
+        <div className={`flex items-start gap-4 rounded-lg p-4 border-2 ${
+          trendAssessment.status === 'improving'
+            ? 'bg-green-50 dark:bg-green-900/20 border-green-400 dark:border-green-600'
+            : trendAssessment.status === 'needs_attention'
+            ? 'bg-red-50 dark:bg-red-900/20 border-red-400 dark:border-red-600'
+            : trendAssessment.status === 'insufficient_data'
+            ? 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700'
+            : 'bg-slate-50 dark:bg-slate-800/40 border-slate-300 dark:border-slate-600'
+        }`}>
+          <span className="text-2xl select-none shrink-0 mt-0.5">
+            {trendAssessment.status === 'improving' ? '✅'
+              : trendAssessment.status === 'needs_attention' ? '⚠️'
+              : trendAssessment.status === 'insufficient_data' ? '📊'
+              : '➡️'}
+          </span>
+          <div className="flex-1 min-w-0">
+            <p className={`font-bold text-sm ${
+              trendAssessment.status === 'improving'     ? 'text-green-700 dark:text-green-300'
+              : trendAssessment.status === 'needs_attention' ? 'text-red-700 dark:text-red-300'
+              : 'text-slate-600 dark:text-slate-300'
+            }`}>
+              L2 Pipeline Trend: {trendAssessment.label}
+            </p>
+            <p className="text-sm text-light-textMuted dark:text-dark-textMuted mt-0.5">
+              {trendAssessment.explanation}
+            </p>
+            <div className="mt-2 pt-2 border-t border-light-border dark:border-dark-border">
+              <p className="text-xs font-semibold text-light-textMuted dark:text-dark-textMuted mb-1">Top reasons:</p>
+              <ul className="space-y-0.5">
+                {trendAssessment.topReasons.map((r, i) => (
+                  <li key={i} className="text-xs text-light-textMuted dark:text-dark-textMuted">• {r}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Recent L2 Runs (Historical Comparison) ────────────────────────── */}
+      {isAdmin && (
+        <SectionCard title="Recent L2 Runs (Last 5)" borderColor="border-teal-500 dark:border-teal-600">
+          {loadingRecentRuns ? (
+            <p className="text-sm text-light-textMuted dark:text-dark-textMuted">Loading recent runs…</p>
+          ) : recentL2Runs.length === 0 ? (
+            <p className="text-sm text-light-textMuted dark:text-dark-textMuted">No L2 shadow runs found. Run the shadow pipeline to populate this table.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="border-b border-light-border dark:border-dark-border">
+                  <tr>
+                    <th className="text-left py-2 px-2">#</th>
+                    <th className="text-left py-2 px-2">Started</th>
+                    <th className="text-left py-2 px-2">Status</th>
+                    <th className="text-right py-2 px-2">Predictions</th>
+                    <th className="text-right py-2 px-2">Avg Conf.</th>
+                    <th className="text-right py-2 px-2">Personal.</th>
+                    <th className="text-right py-2 px-2">Stale</th>
+                    <th className="text-right py-2 px-2">Missing</th>
+                    <th className="text-right py-2 px-2">Fallback</th>
+                    <th className="text-right py-2 px-2">Duration</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {runsWithDeltas.map((run, idx) => (
+                    <tr key={run.id} className="border-b border-light-border dark:border-dark-border hover:bg-light-border/50 dark:hover:bg-dark-border/50">
+                      <td className="py-2 px-2 text-light-textMuted dark:text-dark-textMuted">{idx + 1}</td>
+                      <td className="py-2 px-2 text-light-textMuted dark:text-dark-textMuted">
+                        {run.startedAt
+                          ? new Date(run.startedAt.seconds ? run.startedAt.seconds * 1000 : run.startedAt)
+                              .toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                          : '—'}
+                      </td>
+                      <td className="py-2 px-2"><StatusBadge status={run.status} /></td>
+                      <td className="py-2 px-2 text-right font-semibold">{run.predictionsCreated}</td>
+                      <td className="py-2 px-2 text-right">
+                        <span>{run.averageConfidence.toFixed(1)}%</span>
+                        {run.confidenceDelta !== null && (
+                          <span className={`ml-1 ${run.confidenceDelta > 0 ? 'text-green-600 dark:text-green-400' : run.confidenceDelta < 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-400'}`}>
+                            {run.confidenceDelta > 0 ? '↑' : run.confidenceDelta < 0 ? '↓' : '='}{run.confidenceDelta !== 0 ? Math.abs(run.confidenceDelta).toFixed(1) : ''}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-2 px-2 text-right">{run.personalizedPredictionCount}</td>
+                      <td className="py-2 px-2 text-right">
+                        <span>{run.staleProfileCount}</span>
+                        {run.staleDelta !== null && run.staleDelta !== 0 && (
+                          <span className={`ml-1 ${run.staleDelta < 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                            {run.staleDelta > 0 ? '↑' : '↓'}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-2 px-2 text-right">{run.missingProfileCount}</td>
+                      <td className="py-2 px-2 text-right">
+                        <span>{run.fallbackPredictionCount}</span>
+                        {run.fallbackDelta !== null && run.fallbackDelta !== 0 && (
+                          <span className={`ml-1 ${run.fallbackDelta < 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                            {run.fallbackDelta > 0 ? '↑' : '↓'}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-2 px-2 text-right">{formatMs(run.durationMs)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </SectionCard>
       )}
 
       {/* ─── A. Prediction Mode ──────────────────────────────────────────────── */}
@@ -381,8 +701,34 @@ export function MlControlPage() {
         <SectionCard title="C. Pipeline Controls">
           <div className="flex flex-wrap gap-3">
             <Btn
+              onClick={async () => {
+                setPipelineRunning(true)
+                setStatusMessage('Running L1 Pipeline...')
+                setStatusType('success')
+                try {
+                  const token = await getIdToken()
+                  const result = await runLevel1Pipeline(token)
+                  if (!result?.ok) throw new Error(result?.error || 'L1 pipeline failed')
+                  const s = result?.summary
+                  setStatusMessage(
+                    `✅ L1 pipeline: ${s?.usersProcessed ?? 0} users, ${s?.predictionsCreated ?? 0} predictions`
+                  )
+                  setStatusType('success')
+                  setTimeout(() => reloadHealth(), 2000)
+                } catch (err) {
+                  setStatusMessage(`❌ ${err instanceof Error ? err.message : 'Unknown error'}`)
+                  setStatusType('error')
+                } finally {
+                  setPipelineRunning(false)
+                }
+              }}
+              label={pipelineRunning ? '⏳ Running...' : '▶️ Run L1 Pipeline'}
+              variant="primary"
+              disabled={pipelineRunning}
+            />
+            <Btn
               onClick={runShadowPipeline}
-              label={pipelineRunning ? '⏳ Running...' : '▶️ Run Shadow Pipeline'}
+              label={pipelineRunning ? '⏳ Running...' : '▶️ Run L2 Shadow Pipeline'}
               variant="secondary"
               disabled={pipelineRunning}
             />

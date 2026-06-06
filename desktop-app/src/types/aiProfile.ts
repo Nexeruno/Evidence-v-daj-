@@ -45,6 +45,8 @@ export interface AiProfileSummary {
   // Staleness tracking
   sourceDataUpdatedAt?: any
   profileStale?: boolean
+  staleSince?: any
+  lastAutoRegeneratedAt?: any
   staleReason?: string[]
   lastTransactionAt?: any
   lastFeedbackAt?: any
