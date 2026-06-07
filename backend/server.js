@@ -1,5 +1,6 @@
 /**
  * FÁZA 6.2A: Simple Node.js Backend Server
+ * FÁZA 6.2E: With orchestration event logging
  *
  * Bridges Firebase Functions logic with Podman Python ML Runtime
  * Runs locally for testing and development
@@ -12,6 +13,10 @@ const fetch = require('node-fetch');
 
 // Import ML Runtime client
 const mlRuntimeClient = require('../functions/mlRuntimeClient');
+
+// Import orchestration logger (FÁZA 6.2E)
+const OrchestrationLogger = require('./orchestration-logger');
+const orchestrationLog = new OrchestrationLogger('./logs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -82,6 +87,28 @@ app.get('/ml-runtime/health', async (req, res) => {
     res.status(500).json({
       status: 'error',
       message: error.message
+    });
+  }
+});
+
+/**
+ * FÁZA 6.2E: Orchestration event log endpoint
+ * Shows local orchestration events for multi-service setup
+ */
+app.get('/logs/orchestration', (req, res) => {
+  try {
+    const events = orchestrationLog.getStatus();
+    res.json({
+      status: 'ok',
+      eventCount: events.length,
+      events: events,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to retrieve orchestration logs',
+      error: error.message
     });
   }
 });
@@ -175,16 +202,17 @@ app.post('/predict', async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
- * FÁZA 6.2D: Startup with dependency sanity check
+ * FÁZA 6.2E: Startup with orchestration logging
  */
 async function startup() {
   console.log('');
   console.log('╔════════════════════════════════════════════════════════════╗');
-  console.log('║  FÁZA 6.2D: Node Backend Startup with Dependency Check   ║');
+  console.log('║  FÁZA 6.2E: Node Backend Startup with Orchestration Log   ║');
   console.log('╚════════════════════════════════════════════════════════════╝');
   console.log('');
 
-  // Log configuration
+  // Log orchestration: Backend starting
+  orchestrationLog.serviceStarting('Backend (Node Express)', PORT);
   console.log('[STARTUP] Configuration:');
   console.log(`  Backend Port: ${PORT}`);
   console.log(`  ML Runtime Host: ${mlRuntimeClient.ML_RUNTIME_HOST}`);
@@ -208,6 +236,8 @@ async function startup() {
   if (!mlRuntimeClient.ML_RUNTIME_ENABLED) {
     console.log('  ⚠️ Status: DISABLED (ML_RUNTIME_ENABLED=false)');
     console.log('  Impact: Prediction calls will return fallback responses');
+    // Log orchestration event
+    orchestrationLog.log('RUNTIME_DISABLED', 'ML Runtime disabled via configuration');
   } else if (!connectivity.reachable) {
     console.log(`  ❌ Status: UNREACHABLE`);
     console.log(`  Reason: ${connectivity.reason}`);
@@ -227,12 +257,25 @@ async function startup() {
     console.log(`    ML_RUNTIME_HOST=${mlRuntimeClient.ML_RUNTIME_HOST}`);
     console.log(`    ML_RUNTIME_PORT=${mlRuntimeClient.ML_RUNTIME_PORT}`);
     console.log('');
+
+    // Log orchestration event
+    orchestrationLog.dependencyMissing(
+      'ML Runtime (Python)',
+      connectivity.reason
+    );
     allDependenciesSatisfied = false;
   } else if (!isHealthy) {
     console.log('  ⚠️ Status: REACHABLE but UNHEALTHY');
     console.log('  Impact: Some predictions may fail');
+    // Log orchestration event
+    orchestrationLog.log('RUNTIME_UNHEALTHY', 'ML Runtime reachable but health check failed');
   } else {
     console.log('  ✅ Status: HEALTHY');
+    // Log orchestration event
+    orchestrationLog.runtimeConnected(
+      'ML Runtime (Python Flask)',
+      mlRuntimeClient.ML_RUNTIME_URL
+    );
   }
   console.log('');
 
@@ -241,17 +284,25 @@ async function startup() {
   console.log('  GET  /health                    — Server health check');
   console.log('  GET  /ml-runtime/status         — ML Runtime connectivity');
   console.log('  GET  /ml-runtime/health         — ML Runtime health');
-  console.log('  GET  /status/dependencies       — All dependencies status (FÁZA 6.2D)');
+  console.log('  GET  /status/dependencies       — All dependencies status');
+  console.log('  GET  /logs/orchestration        — Orchestration events log (FÁZA 6.2E)');
   console.log('  POST /predict                   — Make prediction request');
   console.log('');
 
   if (allDependenciesSatisfied && !mlRuntimeClient.ML_RUNTIME_ENABLED) {
     console.log('[STARTUP] ⚠️ NOTE: ML Runtime disabled, predictions will use fallback');
+    orchestrationLog.log('ORCHESTRATION_READY_DEGRADED', 'All services ready but runtime disabled', {
+      servicesCount: 2,
+      reason: 'ML Runtime disabled'
+    });
   } else if (!allDependenciesSatisfied) {
     console.log('[STARTUP] ❌ CRITICAL: Required dependencies not satisfied!');
     console.log('[STARTUP] Check error messages above for details.');
+    orchestrationLog.orchestrationDegraded('ML Runtime not available');
   } else {
     console.log('[STARTUP] ✅ All dependencies satisfied');
+    // Log orchestration ready event
+    orchestrationLog.orchestrationReady(2);
   }
   console.log('');
 }
