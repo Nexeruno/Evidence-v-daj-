@@ -1620,6 +1620,95 @@ def health_check():
     }), 200
 
 
+@app.route('/readiness', methods=['GET'])
+def readiness_check():
+    """
+    FÁZE 5.5B: Runtime readiness check endpoint
+    Verifies that the runtime can accept valid requests and return valid responses
+
+    Tests:
+    1. Valid request accepted (can parse and validate contract)
+    2. Valid response returned (prediction works and response is correct)
+    """
+    logger.info('Readiness check requested')
+
+    try:
+        # Test 1: Create a minimal valid request
+        test_request = {
+            'uid': 'readiness-check',
+            'pipelineLevel': 'L1',
+            'modelVersion': '1.0',
+            'transactions': [
+                {'category': 'food', 'amount': 100.0, 'date': '2026-01-05'},
+                {'category': 'food', 'amount': 100.0, 'date': '2026-01-15'},
+                {'category': 'food', 'amount': 100.0, 'date': '2026-02-05'},
+            ],
+            'income': 5000.0,
+        }
+
+        # Test 2: Validate request contract
+        is_valid, error_msg = RequestContract.validate(test_request)
+        if not is_valid:
+            logger.warn(f'Readiness check: Request validation failed - {error_msg}')
+            return jsonify({
+                'status': 'not_ready',
+                'reason': 'request_validation_failed',
+                'message': f'Cannot accept valid request: {error_msg}',
+                'timestamp': datetime.utcnow().isoformat() + 'Z'
+            }), 200
+
+        # Test 3: Parse and process request
+        try:
+            parsed = RequestParser.parse(test_request)
+            prediction = calculate_baseline_prediction(
+                parsed['transactions'],
+                parsed['income'],
+                parsed['pipelineLevel']
+            )
+        except Exception as e:
+            logger.warn(f'Readiness check: Processing failed - {str(e)}')
+            return jsonify({
+                'status': 'not_ready',
+                'reason': 'processing_failed',
+                'message': f'Cannot process valid request: {str(e)}',
+                'timestamp': datetime.utcnow().isoformat() + 'Z'
+            }), 200
+
+        # Test 4: Verify response structure
+        if not prediction or 'totalPredictedExpense' not in prediction:
+            logger.warn('Readiness check: Invalid response structure')
+            return jsonify({
+                'status': 'not_ready',
+                'reason': 'invalid_response',
+                'message': 'Response missing required fields',
+                'timestamp': datetime.utcnow().isoformat() + 'Z'
+            }), 200
+
+        # All checks passed
+        logger.info('Readiness check: All checks passed - runtime is ready')
+        return jsonify({
+            'status': 'ready',
+            'reason': 'all_checks_passed',
+            'message': 'Runtime accepts valid requests and returns valid responses',
+            'testsPerformed': [
+                'request_validation',
+                'request_parsing',
+                'prediction_generation',
+                'response_structure'
+            ],
+            'timestamp': datetime.utcnow().isoformat() + 'Z'
+        }), 200
+
+    except Exception as e:
+        logger.error(f'Readiness check error: {str(e)}')
+        return jsonify({
+            'status': 'not_ready',
+            'reason': 'unexpected_error',
+            'message': f'Readiness check failed: {str(e)}',
+            'timestamp': datetime.utcnow().isoformat() + 'Z'
+        }), 200
+
+
 @app.route('/predict', methods=['POST'])
 def predict():
     """
