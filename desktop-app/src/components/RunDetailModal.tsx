@@ -1,4 +1,4 @@
-﻿import { useState, useMemo } from 'react'
+﻿import { useState, useMemo, useEffect, Component, type ReactNode, type ErrorInfo } from 'react'
 import toast from 'react-hot-toast'
 import { SYMBOLS } from '@/utils/symbols'
 import { useDebugLogExport } from '@/hooks/useDebugLogExport'
@@ -747,6 +747,34 @@ interface RunDetailModalProps {
   onClose: () => void
 }
 
+// Error boundary that keeps the overlay dismissible when modal content crashes
+class ModalContentErrorBoundary extends Component<
+  { onClose: () => void; children: ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false }
+  static getDerivedStateFromError(): { hasError: boolean } { return { hasError: true } }
+  componentDidCatch(error: Error, info: ErrorInfo) { console.error('[RunDetailModal] render error:', error, info) }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-light-card dark:bg-dark-card rounded-lg shadow-xl z-50 p-8 text-center space-y-4">
+          <p className="text-red-600 dark:text-red-400 font-semibold text-sm">
+            Run detail could not be displayed.
+          </p>
+          <button
+            onClick={this.props.onClose}
+            className="px-4 py-2 text-sm bg-gray-200 dark:bg-gray-700 rounded hover:bg-gray-300 dark:hover:bg-gray-600"
+          >
+            Close
+          </button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
 export function RunDetailModal({ run, isOpen, onClose }: RunDetailModalProps) {
   const [showExportMenu, setShowExportMenu] = useState(false)
   const [showDetailExportMenu, setShowDetailExportMenu] = useState(false)
@@ -754,6 +782,14 @@ export function RunDetailModal({ run, isOpen, onClose }: RunDetailModalProps) {
 
   // FÁZE 4.8C: Detect if debug export is large — must be before early return (Rules of Hooks)
   const debugExportMetadata = useMemo(() => (run ? getDebugExportMetadata(run) : null), [run])
+
+  // Escape key to close — must be before early return (Rules of Hooks)
+  useEffect(() => {
+    if (!isOpen) return
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [isOpen, onClose])
 
   if (!isOpen || !run) return null
 
@@ -912,7 +948,8 @@ export function RunDetailModal({ run, isOpen, onClose }: RunDetailModalProps) {
         onClick={onClose}
       />
 
-      {/* Modal Content */}
+      {/* Modal Content — wrapped in error boundary so render crashes don't freeze the overlay */}
+      <ModalContentErrorBoundary onClose={onClose}>
       <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-full max-w-2xl max-h-[90vh] bg-light-card dark:bg-dark-card rounded-lg shadow-xl z-50 overflow-y-auto">
         {/* Header */}
         <div className="sticky top-0 bg-light-card dark:bg-dark-card border-b border-light-border dark:border-dark-border p-6 flex items-center justify-between">
@@ -1329,6 +1366,7 @@ export function RunDetailModal({ run, isOpen, onClose }: RunDetailModalProps) {
           </button>
         </div>
       </div>
+      </ModalContentErrorBoundary>
     </>
   )
 }

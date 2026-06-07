@@ -59,43 +59,44 @@ export function AiObservabilityPage() {
         : failedRuns
 
   const openRunDetail = (run: any, type: 'success' | 'failed') => {
-    // Ensure status is valid for RunDetail interface
-    let status: 'completed' | 'failed' | 'error'
+    try {
+      let status: 'completed' | 'failed' | 'error'
+      if (type === 'failed') {
+        const runStatus = run.status?.toLowerCase() || 'failed'
+        status = runStatus === 'error' ? 'error' : 'failed'
+      } else {
+        status = 'completed'
+      }
 
-    if (type === 'failed') {
-      // For failed runs, map to error or failed
-      const runStatus = run.status?.toLowerCase() || 'failed'
-      status = runStatus === 'error' ? 'error' : 'failed'
-    } else {
-      // For success runs, always use completed
-      status = 'completed'
+      const runDetail: RunDetail = {
+        id: run.id || 'unknown',
+        status,
+        startedAt: run.startedAt,
+        finishedAt: run.finishedAt,
+        durationMs: run.durationMs || 0,
+        errorCount: run.errorCount || 0,
+        lastError: run.lastError || '',
+        validationStatus:
+          type === 'success'
+            ? 'valid'
+            : run.errorCount && run.errorCount > 1
+              ? 'invalid'
+              : 'warning',
+        requestSummary:
+          type === 'success'
+            ? `Pipeline: L${run.pipelineLevel || 1}\nUsers Processed: ${run.usersProcessed || 0}\nStream: Active`
+            : `Pipeline: L${run.pipelineLevel || 1}\nError Count: ${run.errorCount || 1}\nStatus: Failed`,
+        responseSummary:
+          type === 'success'
+            ? `Predictions Created: ${run.predictionsCreated || 0}\nDuration: ${Math.round((run.durationMs || 0) / 1000)}s\nSuccess Rate: 100%`
+            : `Last Error: ${run.lastError ? run.lastError.substring(0, 100) : 'Unknown'}\nRetry Attempts: 0\nRequires Investigation: Yes`,
+      }
+      setSelectedRun(runDetail)
+      setIsModalOpen(true)
+    } catch {
+      // Don't open modal on preparation error — keep UI usable
+      setIsModalOpen(false)
     }
-
-    const runDetail: RunDetail = {
-      id: run.id || 'unknown',
-      status,
-      startedAt: run.startedAt,
-      finishedAt: run.finishedAt,
-      durationMs: run.durationMs || 0,
-      errorCount: run.errorCount || 0,
-      lastError: run.lastError || '',
-      validationStatus:
-        type === 'success'
-          ? 'valid'
-          : run.errorCount && run.errorCount > 1
-            ? 'invalid'
-            : 'warning',
-      requestSummary:
-        type === 'success'
-          ? `Pipeline: L${run.pipelineLevel || 1}\nUsers Processed: ${run.usersProcessed || 0}\nStream: Active`
-          : `Pipeline: L${run.pipelineLevel || 1}\nError Count: ${run.errorCount || 1}\nStatus: Failed`,
-      responseSummary:
-        type === 'success'
-          ? `Predictions Created: ${run.predictionsCreated || 0}\nDuration: ${Math.round((run.durationMs || 0) / 1000)}s\nSuccess Rate: 100%`
-          : `Last Error: ${run.lastError ? run.lastError.substring(0, 100) : 'Unknown'}\nRetry Attempts: 0\nRequires Investigation: Yes`,
-    }
-    setSelectedRun(runDetail)
-    setIsModalOpen(true)
   }
 
   // Calculate summary metrics
@@ -923,7 +924,7 @@ export function AiObservabilityPage() {
       <RunDetailModal
         run={selectedRun}
         isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        onClose={() => { setIsModalOpen(false); setSelectedRun(null) }}
       />
     </div>
   )
