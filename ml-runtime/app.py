@@ -2165,6 +2165,21 @@ def evaluate_summary():
         # FÁZE 5.3B: Calculate evaluation summary
         summary = EvaluationSummary.calculate_summary(transactions, prediction, confidence)
 
+        # FÁZE 5.3F: Observability logging for evaluation run
+        total_rows = summary['summary']['total_row_count']
+        valid_rows = summary['summary']['valid_result_count']
+        error_rows = summary['summary']['failed_row_count']
+        verdict = summary['readiness']['verdict']
+        failure_reasons = summary['debug_summary']['top_failure_reasons']
+        top_failure_reason = list(failure_reasons.keys())[0] if failure_reasons else None
+        failure_reason_count = summary['debug_summary']['failure_reason_count']
+
+        # Log evaluation key events
+        logger.info(f"[EVAL-ROWS-PROCESSED] uid={uid}, total={total_rows}, valid={valid_rows}, error={error_rows}, success_rate={summary['comparison']['success_rate']}%")
+        logger.info(f"[EVAL-VERDICT-DETERMINED] uid={uid}, verdict={verdict}, reasoning={summary['readiness']['reasoning']}")
+        if top_failure_reason:
+            logger.info(f"[EVAL-TOP-FAILURE-REASON] uid={uid}, reason={top_failure_reason}, count={failure_reasons[top_failure_reason]}, total_types={failure_reason_count}")
+
         processing_time_ms = int((time.time() - start_time) * 1000)
 
         response = {
@@ -2184,7 +2199,7 @@ def evaluate_summary():
             }
         }
 
-        logger.info(f"[EVAL-SUMMARY-SUCCEEDED] uid={uid}, rows={summary['summary']['total_row_count']}, valid={summary['summary']['valid_result_count']}, avg_conf={confidence:.2f}, quality={summary['quality_score']['overall_score']}")
+        logger.info(f"[EVAL-SUMMARY-SUCCEEDED] uid={uid}, rows={total_rows}, valid={valid_rows}, verdict={verdict}, avg_conf={confidence:.2f}, quality={summary['quality_score']['overall_score']}")
 
         return jsonify(response), 200
 
