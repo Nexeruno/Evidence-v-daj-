@@ -75,6 +75,75 @@ async function checkMlRuntimeHealth() {
 }
 
 /**
+ * FÁZA 6.1D: Check basic connectivity to ML runtime
+ * Simple network reachability test (no health check)
+ * @returns {Promise<Object>} - {reachable: boolean, host: string, port: string, reason?: string}
+ */
+async function checkMlRuntimeConnectivity() {
+  // FÁZA 6.1D: Return unreachable if runtime disabled
+  if (!ML_RUNTIME_ENABLED) {
+    console.log(`⚠️ Runtime connectivity check: disabled`);
+    return {
+      reachable: false,
+      host: ML_RUNTIME_HOST,
+      port: ML_RUNTIME_PORT,
+      reason: 'runtime_disabled'
+    };
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT);
+
+    const response = await fetch(`${ML_RUNTIME_URL}/health`, {
+      method: 'GET',
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      console.warn(
+        `⚠️ Runtime connectivity: reachable but returned ${response.status}`
+      );
+      return {
+        reachable: true,
+        host: ML_RUNTIME_HOST,
+        port: ML_RUNTIME_PORT,
+        reason: `http_${response.status}`
+      };
+    }
+
+    console.log(`✅ Runtime connectivity: reachable (${ML_RUNTIME_URL})`);
+    return {
+      reachable: true,
+      host: ML_RUNTIME_HOST,
+      port: ML_RUNTIME_PORT
+    };
+
+  } catch (error) {
+    // Network errors (ECONNREFUSED, ENOTFOUND, timeout, etc.)
+    const reason = error.name === 'AbortError'
+      ? 'timeout'
+      : error.message.split(':')[0] || 'connection_error';
+
+    console.warn(
+      `⚠️ Runtime connectivity: unreachable | reason=${reason} | url=${ML_RUNTIME_URL}`
+    );
+
+    return {
+      reachable: false,
+      host: ML_RUNTIME_HOST,
+      port: ML_RUNTIME_PORT,
+      reason: reason
+    };
+  }
+}
+
+/**
  * Send prediction request to external Python runtime
  * FÁZE 5.0E: With structured logging for external Python call flow
  * FÁZE 6.1B: With fallback behavior when runtime unavailable
@@ -501,6 +570,7 @@ module.exports = {
   callMlRuntime,
   callEvaluateSummary,
   checkMlRuntimeHealth,
+  checkMlRuntimeConnectivity,
   getMlRuntimeStatus,
   ML_RUNTIME_URL,
   ML_RUNTIME_HOST,
