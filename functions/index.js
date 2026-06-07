@@ -2062,6 +2062,9 @@ const savePredictionResults = async (uid, prediction) => {
       monthlyIncome: prediction.monthlyIncome || {},
       pipelineLevel: 1,
       active: true,
+      // FÁZE 5.1D: Python runtime metadata for explainability
+      sourceMethod: prediction.sourceMethod || 'Node.js baseline',
+      pythonMetadata: prediction.pythonMetadata || null
     };
 
     await db.collection(`users/${uid}/mlPredictions`).add(predictionData);
@@ -2136,6 +2139,7 @@ exports.runMlPipeline = functions
             const runtimeResponse = await mlRuntimeClient.callMlRuntime(runtimeRequest);
 
             // Transform Python response into Node.js prediction format
+            // FÁZE 5.1D: Include Python debug metadata (inputs, confidence explanation)
             prediction = {
               totalPredictedExpense: runtimeResponse.predictions[0]?.totalPredictedExpense || 0,
               categories: runtimeResponse.predictions[0]?.categories || {},
@@ -2145,6 +2149,14 @@ exports.runMlPipeline = functions
               features: { dataPoints: transactions.length },
               incomeStats: { dataPoints: income.length },
               monthlyIncome: {},
+              // FÁZE 5.1D: Python debug metadata for explainability
+              sourceMethod: 'Python ML Runtime',
+              pythonMetadata: {
+                inputs: runtimeResponse.debugMetadata?.inputs || {},
+                confidenceExplained: runtimeResponse.debugMetadata?.confidenceExplained || {},
+                calculationMethod: runtimeResponse.debugMetadata?.calculationMethod || '',
+                processingTimeMs: runtimeResponse.debugMetadata?.processingTimeMs || 0
+              }
             };
 
             logger.info({
@@ -2224,6 +2236,9 @@ exports.runMlPipeline = functions
 
             // Use Node.js baseline as fallback
             prediction = generateBaselinePrediction(transactions, income);
+            // FÁZE 5.1D: Mark as fallback source
+            prediction.sourceMethod = 'Node.js (fallback)';
+            prediction.pythonMetadata = null;
           }
 
           const saved = await savePredictionResults(user.uid, prediction);
@@ -2370,6 +2385,7 @@ exports.testMlPipeline = functions.region(REGION).https.onRequest(async (req, re
               const runtimeResponse = await mlRuntimeClient.callMlRuntime(runtimeRequest);
 
               // Transform Python response into Node.js prediction format
+              // FÁZE 5.1D: Include Python debug metadata
               prediction = {
                 totalPredictedExpense: runtimeResponse.predictions[0]?.totalPredictedExpense || 0,
                 categories: runtimeResponse.predictions[0]?.categories || {},
@@ -2379,6 +2395,14 @@ exports.testMlPipeline = functions.region(REGION).https.onRequest(async (req, re
                 features: { dataPoints: transactions.length },
                 incomeStats: { dataPoints: income.length },
                 monthlyIncome: {},
+                // FÁZE 5.1D: Python debug metadata for explainability
+                sourceMethod: 'Python ML Runtime',
+                pythonMetadata: {
+                  inputs: runtimeResponse.debugMetadata?.inputs || {},
+                  confidenceExplained: runtimeResponse.debugMetadata?.confidenceExplained || {},
+                  calculationMethod: runtimeResponse.debugMetadata?.calculationMethod || '',
+                  processingTimeMs: runtimeResponse.debugMetadata?.processingTimeMs || 0
+                }
               };
 
               logger.info({
@@ -2395,6 +2419,9 @@ exports.testMlPipeline = functions.region(REGION).https.onRequest(async (req, re
                 message: 'Falling back to Node.js baseline',
               });
               prediction = generateBaselinePrediction(transactions, income);
+              // FÁZE 5.1D: Mark as fallback source
+              prediction.sourceMethod = 'Node.js (fallback)';
+              prediction.pythonMetadata = null;
             }
 
             const saved = await savePredictionResults(user.uid, prediction);
