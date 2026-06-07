@@ -1283,6 +1283,8 @@ def predict():
         if not target_valid:
             logger.warning(f'Target validation issue: {target_error}', extra={'uid': data.get('uid')})
 
+        # FÁZE 5.2E: Observability logging - dataset accepted
+        logger.info(f"[DATASET-ACCEPTED] uid={parsed['uid']}, rows={len(parsed['transactions'])}, level={parsed['pipelineLevel']}, income_provided={parsed['income'] > 0}")
         logger.info(f"[PREDICT] Processing: uid={parsed['uid']}, level={parsed['pipelineLevel']}, txns={len(parsed['transactions'])}")
 
         # Extract parsed data
@@ -1297,6 +1299,10 @@ def predict():
         try:
             prediction = calculate_baseline_prediction(transactions, income, pipeline_level)
             logger.debug(f"Prediction generated: {prediction}")
+
+            # FÁZE 5.2E: Observability logging - computation succeeded
+            logger.info(f"[COMPUTATION-SUCCEEDED] uid={uid}, predicted_expense={prediction['totalPredictedExpense']:.2f}, categories={len(prediction['categories'])}")
+
         except Exception as pred_err:
             logger.error(f'Prediction calculation failed: {str(pred_err)}')
             # FÁZE 5.1F: Log computation error
@@ -1306,6 +1312,8 @@ def predict():
                 'errorType': 'COMPUTATION_FAILED',
                 'reason': f'Unexpected error during prediction calculation: {str(pred_err)}'
             })
+            # FÁZE 5.2E: Observability logging - computation failed
+            logger.error(f"[COMPUTATION-FAILED] uid={uid}, error={str(pred_err)}")
 
             return jsonify({
                 'status': 'failed',
@@ -1374,11 +1382,18 @@ def predict():
                 if drivers_summary:
                     logger.info(f"[IMPACT-DRIVERS] uid={uid}, drivers={drivers_summary}")
 
+        # FÁZE 5.2E: Observability logging - confidence assigned
+        confidence_score = prediction['confidence']
+        logger.info(f"[CONFIDENCE-ASSIGNED] uid={uid}, score={confidence_score}, method=4-factor-weighted")
+
         # FÁZE 5.1E: Observability logging for deterministic result
         logger.info(f"[RESULT] Generated: uid={uid}, expense={prediction['totalPredictedExpense']}, confidence={prediction['confidence']}, method=deterministic")
         logger.info(f"[CONFIDENCE] Assigned: uid={uid}, score={prediction['confidence']}, factors=4-factor-weighted")
         if '_debug' in prediction:
           logger.info(f"[METADATA] Attached: uid={uid}, inputs={len(prediction['_debug']['inputSummary'])}, factors={len(prediction['_debug']['confidenceBreakdown'])}")
+
+        # FÁZE 5.2E: Observability logging - flow summary
+        logger.info(f"[DATASET-BACKED-FLOW] uid={uid}, rows={len(transactions)}, computation=success, confidence={prediction['confidence']}, time={processing_time_ms}ms")
 
         logger.info(f"[SUCCESS] Prediction completed: uid={uid}, level={pipeline_level}, confidence={prediction['confidence']}, time={processing_time_ms}ms")
 
@@ -1446,16 +1461,24 @@ def dataset_info():
         transactions = parsed['transactions']
         uid = parsed['uid']
 
+        # FÁZE 5.2E: Observability logging - dataset accepted for analysis
+        logger.info(f"[DATASET-ACCEPTED] uid={uid}, rows={len(transactions)}, level={parsed['pipelineLevel']}, endpoint=dataset-info")
+
         # Validate features
         features_valid, features_error = FeatureExtractor.validate_features(transactions)
         if not features_valid:
             logger.error(f'Dataset info feature validation failed: {features_error}')
+            # FÁZE 5.2E: Observability logging - feature validation failed
+            logger.error(f"[FEATURE-VALIDATION-FAILED] uid={uid}, error={features_error}")
             return jsonify({
                 'status': 'failed',
                 'error': f'Feature validation failed: {features_error}',
                 'uid': uid,
                 'debugMetadata': {'processingTimeMs': 0}
             }), 400
+
+        # FÁZE 5.2E: Observability logging - feature validation passed
+        logger.info(f"[FEATURE-VALIDATION-PASSED] uid={uid}, features=all-valid")
 
         # Analyze dataset
         feature_coverage = FeatureExtractor.analyze_feature_coverage(transactions)
@@ -1495,6 +1518,10 @@ def dataset_info():
                 'dataSource': 'Firestore (real user transactions)',
             }
         }
+
+        # FÁZE 5.2E: Observability logging - dataset analysis summary
+        logger.info(f"[DATASET-ANALYSIS-SUCCEEDED] uid={uid}, rows={len(transactions)}, features_ok={features_valid}, targets_ok={target_valid}")
+        logger.info(f"[DATASET-BACKED-FLOW] uid={uid}, rows={len(transactions)}, analysis=success, ready_for_training={dataset_meta['summary']['readyForTraining']}, time={processing_time_ms}ms")
 
         logger.info(f"[DATASET-INFO] Analysis: uid={uid}, rows={len(transactions)}, features_ok={features_valid}, target_ok={target_valid}, ready={dataset_meta['summary']['readyForTraining']}")
 
