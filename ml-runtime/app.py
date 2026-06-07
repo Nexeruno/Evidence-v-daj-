@@ -725,6 +725,148 @@ class ResponseContract:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# 📈 EVALUATION METRICS - Offline evaluation for deterministic predictions (FÁZE 5.3A)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class EvaluationMetrics:
+    """
+    FÁZE 5.3A: Calculate evaluation metrics for predictions vs actual values
+    """
+
+    @staticmethod
+    def calculate_mae(predictions: List[float], actuals: List[float]) -> float:
+        """Mean Absolute Error"""
+        if not predictions:
+            return 0.0
+        errors = [abs(p - a) for p, a in zip(predictions, actuals)]
+        return sum(errors) / len(errors)
+
+    @staticmethod
+    def calculate_rmse(predictions: List[float], actuals: List[float]) -> float:
+        """Root Mean Squared Error"""
+        if not predictions:
+            return 0.0
+        squared_errors = [(p - a) ** 2 for p, a in zip(predictions, actuals)]
+        mse = sum(squared_errors) / len(squared_errors)
+        return mse ** 0.5
+
+    @staticmethod
+    def calculate_mape(predictions: List[float], actuals: List[float]) -> float:
+        """Mean Absolute Percentage Error"""
+        if not predictions or not actuals:
+            return 0.0
+        # Filter out zero actuals to avoid division by zero
+        valid_pairs = [(p, a) for p, a in zip(predictions, actuals) if a > 0]
+        if not valid_pairs:
+            return 0.0
+        percentage_errors = [abs((p - a) / a) * 100 for p, a in valid_pairs]
+        return sum(percentage_errors) / len(percentage_errors)
+
+    @staticmethod
+    def calculate_r_squared(predictions: List[float], actuals: List[float]) -> float:
+        """R-squared (coefficient of determination)"""
+        if len(predictions) < 2:
+            return 0.0
+
+        mean_actual = sum(actuals) / len(actuals)
+        ss_tot = sum((a - mean_actual) ** 2 for a in actuals)
+        ss_res = sum((p - a) ** 2 for p, a in zip(predictions, actuals))
+
+        if ss_tot == 0:
+            return 0.0
+        return 1 - (ss_res / ss_tot)
+
+
+class DatasetSplitter:
+    """
+    FÁZE 5.3A: Split dataset into train/test for evaluation
+    """
+
+    @staticmethod
+    def split_by_date(transactions: List[Dict], test_ratio: float = 0.2) -> Tuple[List[Dict], List[Dict], List[str]]:
+        """
+        Split by date: earlier transactions for train, later for test
+        Returns: (train_transactions, test_transactions, test_months)
+        """
+        if not transactions:
+            return [], [], []
+
+        # Group by month
+        monthly_groups = {}
+        for tx in transactions:
+            date_str = str(tx.get('date', '')).strip()
+            if date_str and len(date_str) >= 7:
+                month_key = date_str[:7]
+                if month_key not in monthly_groups:
+                    monthly_groups[month_key] = []
+                monthly_groups[month_key].append(tx)
+
+        sorted_months = sorted(monthly_groups.keys())
+        split_idx = int(len(sorted_months) * (1 - test_ratio))
+
+        train_months = sorted_months[:split_idx]
+        test_months = sorted_months[split_idx:]
+
+        train_txs = []
+        test_txs = []
+
+        for month in train_months:
+            train_txs.extend(monthly_groups[month])
+        for month in test_months:
+            test_txs.extend(monthly_groups[month])
+
+        return train_txs, test_txs, test_months
+
+    @staticmethod
+    def get_test_month_totals(transactions: List[Dict], test_months: List[str]) -> Dict[str, float]:
+        """Get actual total expenses for test months"""
+        monthly_totals = {}
+
+        for month in test_months:
+            monthly_totals[month] = 0.0
+
+        for tx in transactions:
+            date_str = str(tx.get('date', '')).strip()
+            if date_str and len(date_str) >= 7:
+                month_key = date_str[:7]
+                if month_key in monthly_totals:
+                    amount = float(tx.get('amount', 0))
+                    monthly_totals[month_key] += amount
+
+        return monthly_totals
+
+
+class EvaluationReporter:
+    """
+    FÁZE 5.3A: Generate evaluation report with metrics
+    """
+
+    @staticmethod
+    def generate_report(
+        predictions: Dict[str, float],  # {month: predicted_expense}
+        actuals: Dict[str, float],      # {month: actual_expense}
+        metrics: Dict[str, float]        # {metric_name: value}
+    ) -> Dict:
+        """Generate structured evaluation report"""
+        return {
+            'predictions': predictions,
+            'actuals': actuals,
+            'metrics': {
+                'mae': metrics.get('mae', 0),
+                'rmse': metrics.get('rmse', 0),
+                'mape': metrics.get('mape', 0),
+                'r_squared': metrics.get('r_squared', 0),
+            },
+            'summary': {
+                'test_months': len(predictions),
+                'avg_prediction': sum(predictions.values()) / len(predictions) if predictions else 0,
+                'avg_actual': sum(actuals.values()) / len(actuals) if actuals else 0,
+                'prediction_bias': (sum(predictions.values()) - sum(actuals.values())) / len(predictions) if predictions else 0,
+            }
+        }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # 📊 FEATURE ANALYSIS - Real feature-based insights (FÁZE 5.2C)
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1758,6 +1900,167 @@ def dataset_info():
         }), 500
 
 
+@app.route('/evaluate', methods=['POST'])
+def evaluate():
+    """
+    FÁZE 5.3A: Offline evaluation endpoint
+    Evaluates deterministic predictions against actual data using train/test split
+
+    Request: Same as /predict
+    Response: Evaluation metrics and report
+    """
+    import time
+    start_time = time.time()
+    data = None
+
+    try:
+        # Get and validate JSON
+        data = request.get_json()
+
+        if data is None:
+            return jsonify({
+                'status': 'failed',
+                'error': 'Request must be JSON',
+                'debugMetadata': {'processingTimeMs': 0}
+            }), 400
+
+        # Validate request contract
+        is_valid, error_msg = RequestContract.validate(data)
+        if not is_valid:
+            logger.warning(f'Evaluate request validation failed: {error_msg}')
+            return jsonify({
+                'status': 'failed',
+                'error': error_msg,
+                'uid': data.get('uid'),
+                'debugMetadata': {'processingTimeMs': 0}
+            }), 400
+
+        # Parse and normalize
+        try:
+            parsed = RequestParser.parse(data)
+        except ValueError as e:
+            logger.error(f'Evaluate parsing failed: {str(e)}')
+            return jsonify({
+                'status': 'failed',
+                'error': f'Parsing failed: {str(e)}',
+                'uid': data.get('uid'),
+                'debugMetadata': {'processingTimeMs': 0}
+            }), 400
+
+        transactions = parsed['transactions']
+        uid = parsed['uid']
+        income = parsed['income']
+
+        # FÁZE 5.3A: Validation
+        required_features_valid, required_features_error, _ = DatasetErrorHandler.validate_required_features(transactions)
+        if not required_features_valid:
+            return jsonify({
+                'status': 'failed',
+                'error': required_features_error,
+                'uid': uid,
+                'debugMetadata': {'processingTimeMs': 0}
+            }), 400
+
+        # FÁZE 5.3A: Split dataset
+        train_txs, test_txs, test_months = DatasetSplitter.split_by_date(transactions, test_ratio=0.2)
+
+        if not test_txs or not test_months:
+            return jsonify({
+                'status': 'failed',
+                'error': 'Insufficient data for evaluation (need at least 2 months)',
+                'uid': uid,
+                'debugMetadata': {'processingTimeMs': 0}
+            }), 400
+
+        logger.info(f"[EVALUATE-STARTED] uid={uid}, total_rows={len(transactions)}, train_rows={len(train_txs)}, test_rows={len(test_txs)}, test_months={len(test_months)}")
+
+        # FÁZE 5.3A: Generate predictions
+        train_prediction = calculate_baseline_prediction(train_txs, income, parsed['pipelineLevel'])
+        test_prediction = calculate_baseline_prediction(test_txs, income, parsed['pipelineLevel'])
+
+        # FÁZE 5.3A: Get actual test values
+        test_actuals = DatasetSplitter.get_test_month_totals(transactions, test_months)
+
+        # Create prediction dict for test period (use test_prediction's expense distributed across months)
+        test_predictions_by_month = {}
+        if test_months:
+            # Distribute predicted expense equally across test months (simple approach)
+            monthly_prediction = test_prediction['totalPredictedExpense'] / len(test_months)
+            for month in test_months:
+                test_predictions_by_month[month] = round(monthly_prediction, 2)
+
+        # FÁZE 5.3A: Calculate metrics
+        pred_list = [test_predictions_by_month.get(m, 0) for m in sorted(test_months)]
+        actual_list = [test_actuals.get(m, 0) for m in sorted(test_months)]
+
+        mae = EvaluationMetrics.calculate_mae(pred_list, actual_list)
+        rmse = EvaluationMetrics.calculate_rmse(pred_list, actual_list)
+        mape = EvaluationMetrics.calculate_mape(pred_list, actual_list)
+        r_squared = EvaluationMetrics.calculate_r_squared(pred_list, actual_list)
+
+        metrics = {
+            'mae': round(mae, 2),
+            'rmse': round(rmse, 2),
+            'mape': round(mape, 2),
+            'r_squared': round(r_squared, 2),
+        }
+
+        processing_time_ms = int((time.time() - start_time) * 1000)
+
+        # FÁZE 5.3A: Generate report
+        report = EvaluationReporter.generate_report(test_predictions_by_month, test_actuals, metrics)
+
+        response = {
+            'status': 'success',
+            'uid': uid,
+            'pipelineLevel': parsed['pipelineLevel'],
+            'processedAt': datetime.utcnow().isoformat() + 'Z',
+            'evaluation': {
+                'dataset': {
+                    'total_rows': len(transactions),
+                    'train_rows': len(train_txs),
+                    'test_rows': len(test_txs),
+                    'test_months': len(test_months),
+                },
+                'train_metrics': {
+                    'predicted_expense': round(train_prediction['totalPredictedExpense'], 2),
+                    'confidence': round(train_prediction['confidence'], 2),
+                },
+                'test_metrics': metrics,
+                'predictions_vs_actuals': {
+                    'predictions': test_predictions_by_month,
+                    'actuals': test_actuals,
+                },
+                'summary': report['summary'],
+            },
+            'debugMetadata': {
+                'processingTimeMs': processing_time_ms,
+                'evaluation_type': 'offline_deterministic_baseline',
+                'train_test_split': '80/20',
+                'metric_explanations': {
+                    'mae': 'Mean Absolute Error (dollars)',
+                    'rmse': 'Root Mean Squared Error (dollars)',
+                    'mape': 'Mean Absolute Percentage Error (%)',
+                    'r_squared': 'Coefficient of Determination (0-1)',
+                }
+            }
+        }
+
+        logger.info(f"[EVALUATE-SUCCEEDED] uid={uid}, mae={mae:.2f}, rmse={rmse:.2f}, mape={mape:.1f}%, r_squared={r_squared:.3f}")
+
+        return jsonify(response), 200
+
+    except Exception as e:
+        logger.error(f'Evaluate error: {str(e)}')
+        processing_time_ms = int((time.time() - start_time) * 1000)
+        return jsonify({
+            'status': 'failed',
+            'error': str(e),
+            'uid': data.get('uid') if data else None,
+            'debugMetadata': {'processingTimeMs': processing_time_ms}
+        }), 500
+
+
 @app.route('/status', methods=['GET'])
 def runtime_status():
     """
@@ -1773,13 +2076,15 @@ def runtime_status():
             '/health',
             '/status',
             '/predict',
-            '/dataset-info'
+            '/dataset-info',
+            '/evaluate'
         ],
         'capabilities': [
             'baseline-prediction',
             'dataset-validation',
             'feature-analysis',
-            'target-detection'
+            'target-detection',
+            'offline-evaluation'
         ],
         'timestamp': datetime.utcnow().isoformat() + 'Z'
     }), 200
@@ -1822,6 +2127,7 @@ if __name__ == '__main__':
     logger.info('  GET  /status        - Runtime status')
     logger.info('  POST /predict       - ML prediction with feature validation')
     logger.info('  POST /dataset-info  - Dataset analysis (FÁZE 5.2B)')
+    logger.info('  POST /evaluate      - Offline evaluation (FÁZE 5.3A)')
 
     app.run(
         host='127.0.0.1',
