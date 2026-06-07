@@ -215,12 +215,38 @@ class RequestParser:
 
 
 class ResponseContract:
-    """Validates outgoing response shape"""
+    """Builds and validates outgoing response shape"""
 
     @staticmethod
     def build(request_data: Dict, predictions: List[Dict], error: str = None) -> Dict:
         """
         Build response following contract shape
+
+        Response Contract Shape:
+        {
+            "status": "success" | "failed",
+            "uid": "user-123",
+            "pipelineLevel": "L1" | "L2" | "L3",
+            "modelVersion": "1.0",
+            "processedAt": "2026-06-07T15:30:00.000Z",
+            "predictions": [
+                {
+                    "period": "2026-06",
+                    "totalPredictedExpense": 3500.00,
+                    "confidence": 0.87,
+                    "categories": {"food": 1200.00, "transport": 800.00},
+                    "dataPoints": 45,
+                    "pipelineLevel": "L1"
+                }
+            ],
+            "error": null | "error message",
+            "debugMetadata": {
+                "processingTimeMs": 125,
+                "pythonRuntime": "3.9",
+                "frameworkVersion": "Flask/2.3.2",
+                "parsed": {...}
+            }
+        }
         """
         status = 'failed' if error else 'success'
 
@@ -235,11 +261,74 @@ class ResponseContract:
             'debugMetadata': {
                 'processingTimeMs': 0,  # Will be set by caller
                 'pythonRuntime': '3.9',
-                'frameworkVersion': 'Flask/1.1.2'
+                'frameworkVersion': 'Flask/2.3.2'
             }
         }
 
         return response
+
+    @staticmethod
+    def validate(response: Dict) -> Tuple[bool, str]:
+        """
+        Validate response shape matches contract
+        Returns: (is_valid, error_message)
+        """
+        # Check required top-level fields
+        required_fields = ['status', 'uid', 'pipelineLevel', 'modelVersion', 'processedAt', 'predictions', 'error', 'debugMetadata']
+        for field in required_fields:
+            if field not in response:
+                return False, f"Response missing required field: {field}"
+
+        # Validate status
+        if response['status'] not in ['success', 'failed']:
+            return False, f"Response 'status' must be 'success' or 'failed', got '{response['status']}'"
+
+        # Validate predictions array
+        if not isinstance(response['predictions'], list):
+            return False, f"Response 'predictions' must be array, got {type(response['predictions']).__name__}"
+
+        # If success, predictions must be non-empty
+        if response['status'] == 'success' and len(response['predictions']) == 0:
+            return False, "Response 'predictions' must not be empty for successful response"
+
+        # Validate each prediction
+        for idx, pred in enumerate(response['predictions']):
+            if not isinstance(pred, dict):
+                return False, f"Prediction {idx} must be object, got {type(pred).__name__}"
+
+            # Check required prediction fields
+            pred_required = ['period', 'totalPredictedExpense', 'confidence', 'categories', 'dataPoints', 'pipelineLevel']
+            for field in pred_required:
+                if field not in pred:
+                    return False, f"Prediction {idx} missing field: {field}"
+
+            # Validate types
+            if not isinstance(pred['period'], str):
+                return False, f"Prediction {idx} 'period' must be string, got {type(pred['period']).__name__}"
+            if not isinstance(pred['totalPredictedExpense'], (int, float)):
+                return False, f"Prediction {idx} 'totalPredictedExpense' must be number"
+            if not isinstance(pred['confidence'], (int, float)):
+                return False, f"Prediction {idx} 'confidence' must be number"
+            if not isinstance(pred['categories'], dict):
+                return False, f"Prediction {idx} 'categories' must be object"
+            if not isinstance(pred['dataPoints'], int):
+                return False, f"Prediction {idx} 'dataPoints' must be integer"
+
+            # Validate value ranges
+            if pred['totalPredictedExpense'] < 0:
+                return False, f"Prediction {idx} 'totalPredictedExpense' must be >= 0"
+            if not (0 <= pred['confidence'] <= 1):
+                return False, f"Prediction {idx} 'confidence' must be between 0 and 1"
+            if pred['dataPoints'] < 0:
+                return False, f"Prediction {idx} 'dataPoints' must be >= 0"
+
+        # Validate debugMetadata
+        if not isinstance(response['debugMetadata'], dict):
+            return False, "Response 'debugMetadata' must be object"
+        if 'processingTimeMs' not in response['debugMetadata']:
+            return False, "DebugMetadata must have 'processingTimeMs'"
+
+        return True, ""
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -252,43 +341,107 @@ def calculate_baseline_prediction(
     pipeline_level: str
 ) -> Dict:
     """
-    Calculate simple baseline prediction from transactions
-    FÁZE 5.0A: First placeholder logic (no ML model yet)
+    Calculate deterministic baseline prediction from transactions
+    FÁZE 5.0C: Improved deterministic logic (no ML model yet)
 
-    Real model training will come in 5.0B+
+    Uses historical transaction data to estimate future expenses.
+    Formula: (recent_avg * 0.6) + (overall_avg * 0.4) weighted by data quality
+
+    Real model training will come in FÁZE 5.1+
     """
 
-    if not transactions or income <= 0:
+    now = datetime.utcnow()
+    current_period = now.strftime('%Y-%m')
+
+    # Handle empty data
+    if not transactions:
         return {
-            'period': datetime.utcnow().strftime('%Y-%m'),
-            'totalPredictedExpense': 0,
+            'period': current_period,
+            'totalPredictedExpense': 0.0,
             'confidence': 0.0,
             'categories': {},
-            'dataPoints': 0
+            'dataPoints': 0,
+            'pipelineLevel': pipeline_level
         }
 
     # Group transactions by category
     category_totals = {}
+    category_counts = {}
+    monthly_totals = {}
+
     for tx in transactions:
-        category = tx.get('category', 'other')
+        category = str(tx.get('category', 'other')).strip().lower()
         amount = float(tx.get('amount', 0))
+        date_str = str(tx.get('date', '')).strip()
+
+        # Track by category
         if category not in category_totals:
             category_totals[category] = 0
+            category_counts[category] = 0
         category_totals[category] += amount
+        category_counts[category] += 1
 
-    # Calculate averages (baseline)
+        # Track by month for trend analysis
+        if date_str and len(date_str) >= 7:  # YYYY-MM format
+            month_key = date_str[:7]
+            if month_key not in monthly_totals:
+                monthly_totals[month_key] = 0
+            monthly_totals[month_key] += amount
+
     total_expense = sum(category_totals.values())
     num_transactions = len(transactions)
 
-    # Simple confidence based on data quality
-    # More transactions = higher confidence
-    confidence = min(0.95, 0.5 + (num_transactions * 0.01))
+    # Calculate weighted prediction
+    if monthly_totals:
+        # Sort months chronologically
+        sorted_months = sorted(monthly_totals.keys())
+        num_months = len(sorted_months)
+
+        # Use recent months more heavily (3-month window if available)
+        if num_months >= 3:
+            recent_months = sorted_months[-3:]
+            recent_avg = sum(monthly_totals[m] for m in recent_months) / len(recent_months)
+            overall_avg = total_expense / num_months
+            predicted_expense = (recent_avg * 0.6) + (overall_avg * 0.4)
+        elif num_months > 0:
+            predicted_expense = total_expense / num_months
+        else:
+            predicted_expense = total_expense
+
+        # Confidence based on:
+        # 1. Data frequency (more months = more reliable trend)
+        # 2. Transaction count (more data points = more reliable)
+        # 3. Income constraint (if expenses < income)
+        months_score = min(1.0, num_months / 12)  # Full score at 12 months
+        txns_score = min(1.0, num_transactions / 50)  # Full score at 50+ txns
+        expense_ratio = min(1.0, predicted_expense / (income or 1))  # Good if < income
+        income_score = 1.0 if income > 0 else 0.2
+
+        # Weighted confidence calculation
+        confidence = (months_score * 0.3 + txns_score * 0.3 +
+                     (1 - abs(1 - expense_ratio)) * 0.2 + income_score * 0.2)
+        confidence = max(0.1, min(0.99, confidence))  # Clamp 0.1-0.99
+    else:
+        # No monthly data, use simple average
+        predicted_expense = total_expense
+        confidence = min(0.95, 0.4 + (num_transactions * 0.01))
+
+    # Build response with normalized categories
+    response_categories = {}
+    if total_expense > 0:
+        # Distribute predicted expense proportionally by historical category ratios
+        for category, hist_amount in category_totals.items():
+            ratio = hist_amount / total_expense
+            predicted_category = predicted_expense * ratio
+            response_categories[category] = round(predicted_category, 2)
+    else:
+        response_categories = {}
 
     prediction = {
-        'period': datetime.utcnow().strftime('%Y-%m'),
-        'totalPredictedExpense': round(total_expense, 2),
+        'period': current_period,
+        'totalPredictedExpense': round(predicted_expense, 2),
         'confidence': round(confidence, 2),
-        'categories': {k: round(v, 2) for k, v in category_totals.items()},
+        'categories': response_categories,
         'dataPoints': num_transactions,
         'pipelineLevel': pipeline_level
     }
@@ -318,8 +471,25 @@ def health_check():
 @app.route('/predict', methods=['POST'])
 def predict():
     """
-    FÁZE 5.0B: Main ML prediction endpoint with input parsing & validation
-    Receives request from Node/Firebase, parses, validates, processes, returns predictions
+    FÁZE 5.0C: Main ML prediction endpoint with input parsing, validation, and response
+    Receives request from Node/Firebase, parses, validates, processes, returns valid response
+
+    Processing Pipeline:
+    1. Get and validate JSON
+    2. Validate request contract (type checking, semantic validation)
+    3. Parse and normalize input
+    4. Generate deterministic baseline prediction
+    5. Build response following contract
+    6. Validate response contract
+    7. Return response with metadata
+
+    Prediction Logic (Deterministic - No ML Model Yet):
+    - Groups transactions by category
+    - Analyzes monthly trends (3-month window preferred)
+    - Calculates weighted prediction: (recent_avg * 0.6) + (overall_avg * 0.4)
+    - Confidence score based on: data frequency (30%), transaction count (30%),
+      expense ratio (20%), income constraint (20%)
+    - Distributes predicted amount proportionally by historical category breakdown
 
     Request Contract:
     {
@@ -425,12 +595,33 @@ def predict():
         debug_mode = parsed['debugMode']
 
         # Step 4: Generate prediction (using parsed data)
-        prediction = calculate_baseline_prediction(transactions, income, pipeline_level)
+        try:
+            prediction = calculate_baseline_prediction(transactions, income, pipeline_level)
+            logger.debug(f"Prediction generated: {prediction}")
+        except Exception as pred_err:
+            logger.error(f'Prediction calculation failed: {str(pred_err)}')
+            return jsonify({
+                'status': 'failed',
+                'error': f'Prediction calculation failed: {str(pred_err)}',
+                'uid': uid,
+                'debugMetadata': {'processingTimeMs': int((time.time() - start_time) * 1000)}
+            }), 500
 
-        # Build response following contract
+        # Step 5: Build response following contract
         response = ResponseContract.build(data, [prediction])
 
-        # Add processing time and parsing metadata
+        # Step 6: Validate response contract
+        is_valid, validation_error = ResponseContract.validate(response)
+        if not is_valid:
+            logger.error(f'Response validation failed: {validation_error}')
+            return jsonify({
+                'status': 'failed',
+                'error': f'Internal error: {validation_error}',
+                'uid': uid,
+                'debugMetadata': {'processingTimeMs': int((time.time() - start_time) * 1000)}
+            }), 500
+
+        # Step 7: Add processing time and parsing metadata
         processing_time_ms = int((time.time() - start_time) * 1000)
         response['debugMetadata']['processingTimeMs'] = processing_time_ms
         response['debugMetadata']['parsed'] = RequestParser.get_summary(parsed)
