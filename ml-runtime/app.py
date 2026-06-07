@@ -82,6 +82,13 @@ class RequestContract:
         if tx.get('amount') < 0:
             return False, f"Transaction {index}: 'amount' must be >= 0, got {tx.get('amount')}"
 
+        # Validate date format (must be YYYY-MM-DD)
+        date_str = tx.get('date', '')
+        try:
+            datetime.strptime(date_str, '%Y-%m-%d')
+        except ValueError:
+            return False, f"Transaction {index}: 'date' must be YYYY-MM-DD format, got '{date_str}'"
+
         return True, ""
 
     @staticmethod
@@ -2786,7 +2793,7 @@ if __name__ == '__main__':
     logger.info('═' * 70)
 
     app.run(
-        host='127.0.0.1',
+        host='0.0.0.0',  # bind all interfaces — required for Podman/container port mapping
         port=PORT,
         debug=DEBUG,
         threaded=True
