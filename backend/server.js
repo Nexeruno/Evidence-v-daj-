@@ -86,6 +86,51 @@ app.get('/ml-runtime/health', async (req, res) => {
   }
 });
 
+/**
+ * FÁZA 6.2D: Dependency status endpoint
+ * Shows status of all service dependencies
+ */
+app.get('/status/dependencies', async (req, res) => {
+  try {
+    const connectivity = await mlRuntimeClient.checkMlRuntimeConnectivity();
+    const health = await mlRuntimeClient.checkMlRuntimeHealth();
+
+    const dependencies = {
+      backend: {
+        name: 'Node Backend',
+        status: 'healthy',
+        enabled: true
+      },
+      mlRuntime: {
+        name: 'ML Runtime (Python)',
+        status: health ? 'healthy' : 'unhealthy',
+        reachable: connectivity.reachable,
+        enabled: mlRuntimeClient.ML_RUNTIME_ENABLED,
+        host: mlRuntimeClient.ML_RUNTIME_HOST,
+        port: mlRuntimeClient.ML_RUNTIME_PORT,
+        url: mlRuntimeClient.ML_RUNTIME_URL,
+        reason: connectivity.reason || null
+      }
+    };
+
+    // Overall status
+    const allHealthy = dependencies.backend.status === 'healthy' &&
+                       dependencies.mlRuntime.status === 'healthy';
+
+    res.json({
+      status: allHealthy ? 'ready' : 'degraded',
+      dependencies: dependencies,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to check dependencies',
+      error: error.message
+    });
+  }
+});
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // PREDICTION ENDPOINTS
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -130,33 +175,83 @@ app.post('/predict', async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
- * Startup logging
+ * FÁZA 6.2D: Startup with dependency sanity check
  */
 async function startup() {
   console.log('');
   console.log('╔════════════════════════════════════════════════════════════╗');
-  console.log('║  FÁZA 6.2A: Node Backend Server Startup                  ║');
+  console.log('║  FÁZA 6.2D: Node Backend Startup with Dependency Check   ║');
   console.log('╚════════════════════════════════════════════════════════════╝');
   console.log('');
-  console.log(`[STARTUP] Node Server starting on port ${PORT}`);
-  console.log(`[STARTUP] ML Runtime URL: ${mlRuntimeClient.ML_RUNTIME_URL}`);
-  console.log(`[STARTUP] ML Runtime Host: ${mlRuntimeClient.ML_RUNTIME_HOST}`);
-  console.log(`[STARTUP] ML Runtime Port: ${mlRuntimeClient.ML_RUNTIME_PORT}`);
-  console.log(`[STARTUP] ML Runtime Enabled: ${mlRuntimeClient.ML_RUNTIME_ENABLED}`);
+
+  // Log configuration
+  console.log('[STARTUP] Configuration:');
+  console.log(`  Backend Port: ${PORT}`);
+  console.log(`  ML Runtime Host: ${mlRuntimeClient.ML_RUNTIME_HOST}`);
+  console.log(`  ML Runtime Port: ${mlRuntimeClient.ML_RUNTIME_PORT}`);
+  console.log(`  ML Runtime URL: ${mlRuntimeClient.ML_RUNTIME_URL}`);
+  console.log(`  ML Runtime Enabled: ${mlRuntimeClient.ML_RUNTIME_ENABLED}`);
   console.log('');
-  console.log('Available endpoints:');
+
+  // Check dependencies
+  console.log('[STARTUP] Checking dependencies...');
+  console.log('');
+
+  // Check ML Runtime connectivity and health
+  const connectivity = await mlRuntimeClient.checkMlRuntimeConnectivity();
+  const isHealthy = await mlRuntimeClient.checkMlRuntimeHealth();
+
+  let allDependenciesSatisfied = true;
+
+  // ML Runtime dependency check
+  console.log('[STARTUP] Dependency: ML Runtime');
+  if (!mlRuntimeClient.ML_RUNTIME_ENABLED) {
+    console.log('  ⚠️ Status: DISABLED (ML_RUNTIME_ENABLED=false)');
+    console.log('  Impact: Prediction calls will return fallback responses');
+  } else if (!connectivity.reachable) {
+    console.log(`  ❌ Status: UNREACHABLE`);
+    console.log(`  Reason: ${connectivity.reason}`);
+    console.log(`  Expected: http://${mlRuntimeClient.ML_RUNTIME_HOST}:${mlRuntimeClient.ML_RUNTIME_PORT}`);
+    console.log('');
+    console.log('  ⚠️ DEPENDENCY MISSING!');
+    console.log('');
+    console.log('  Solution 1: If using docker-compose');
+    console.log('    podman-compose down');
+    console.log('    podman-compose up');
+    console.log('');
+    console.log('  Solution 2: If running standalone');
+    console.log(`    cd ml-runtime`);
+    console.log(`    python app.py`);
+    console.log('');
+    console.log('  Solution 3: Check configuration');
+    console.log(`    ML_RUNTIME_HOST=${mlRuntimeClient.ML_RUNTIME_HOST}`);
+    console.log(`    ML_RUNTIME_PORT=${mlRuntimeClient.ML_RUNTIME_PORT}`);
+    console.log('');
+    allDependenciesSatisfied = false;
+  } else if (!isHealthy) {
+    console.log('  ⚠️ Status: REACHABLE but UNHEALTHY');
+    console.log('  Impact: Some predictions may fail');
+  } else {
+    console.log('  ✅ Status: HEALTHY');
+  }
+  console.log('');
+
+  // Summary
+  console.log('[STARTUP] Available endpoints:');
   console.log('  GET  /health                    — Server health check');
-  console.log('  GET  /ml-runtime/status         — ML Runtime connectivity status');
-  console.log('  GET  /ml-runtime/health         — ML Runtime health check');
+  console.log('  GET  /ml-runtime/status         — ML Runtime connectivity');
+  console.log('  GET  /ml-runtime/health         — ML Runtime health');
+  console.log('  GET  /status/dependencies       — All dependencies status (FÁZA 6.2D)');
   console.log('  POST /predict                   — Make prediction request');
   console.log('');
 
-  // Check ML Runtime connectivity
-  const connectivity = await mlRuntimeClient.checkMlRuntimeConnectivity();
-  if (connectivity.reachable) {
-    console.log('✅ [STARTUP] ML Runtime is reachable');
+  if (allDependenciesSatisfied && !mlRuntimeClient.ML_RUNTIME_ENABLED) {
+    console.log('[STARTUP] ⚠️ NOTE: ML Runtime disabled, predictions will use fallback');
+  } else if (!allDependenciesSatisfied) {
+    console.log('[STARTUP] ❌ CRITICAL: Required dependencies not satisfied!');
+    console.log('[STARTUP] Check error messages above for details.');
   } else {
-    console.log(`⚠️ [STARTUP] ML Runtime is unreachable: ${connectivity.reason}`);
+    console.log('[STARTUP] ✅ All dependencies satisfied');
   }
   console.log('');
 }
