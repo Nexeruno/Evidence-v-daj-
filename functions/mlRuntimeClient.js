@@ -59,14 +59,17 @@ async function checkMlRuntimeHealth() {
 /**
  * Send prediction request to external Python runtime
  * FÁZE 5.0E: With structured logging for external Python call flow
+ * FÁZE 6.1B: With fallback behavior when runtime unavailable
  *
  * @param {Object} requestData - ML request payload
- * @returns {Promise<Object>} - Prediction response from Python
+ * @param {Object} options - Options (includesFallback: whether to return fallback or throw)
+ * @returns {Promise<Object>} - Prediction response from Python or fallback
  */
-async function callMlRuntime(requestData) {
+async function callMlRuntime(requestData, options = {}) {
   const uid = requestData.uid;
   const pipelineLevel = requestData.pipelineLevel;
   const callStartTime = Date.now();
+  const allowFallback = options.allowFallback !== false; // Default: allow fallback
 
   // ─────────────────────────────────────────────────────────────
   // STAGE 1: VALIDATE REQUEST CONTRACT
@@ -191,6 +194,32 @@ async function callMlRuntime(requestData) {
       console.error(
         `[ML] ❌ UNAVAILABLE | reason=${error.message}, elapsed=${elapsedMs}ms | uid=${uid}`
       );
+
+      // FÁZE 6.1B: Return fallback response if allowed
+      if (allowFallback) {
+        console.warn(`[ML] ⚠️ FALLBACK | uid=${uid}, returning fallback status`);
+        return {
+          status: 'fallback',
+          uid: uid,
+          reason: 'runtime_unavailable',
+          message: 'ML Runtime unavailable - using fallback response',
+          fallback: {
+            predictedExpense: null,
+            confidence: 0.0,
+            confidenceFactors: {
+              dataFrequency: 0,
+              transactionCount: 0,
+              expenseRatio: 0,
+              incomeConstraint: 0
+            }
+          },
+          debugMetadata: {
+            processingTimeMs: elapsedMs,
+            fallbackReason: 'runtime_not_available',
+            timestamp: new Date().toISOString()
+          }
+        };
+      }
     } else if (
       error.message.includes('Invalid response') ||
       error.message.includes('missing predictions')
