@@ -1732,19 +1732,21 @@ def status_summary():
         availability = 'available'
         contract_ready = 'contract_ready'
 
+        # Check if RequestContract.validate is available
         try:
-            is_valid, error_msg = RequestContract.validate({'test': True})
-            if not is_valid:
+            if not hasattr(RequestContract, 'validate') or not callable(getattr(RequestContract, 'validate')):
                 contract_ready = 'not_ready'
         except:
             contract_ready = 'not_ready'
 
+        # Check if RequestParser.parse is available
         try:
             if not hasattr(RequestParser, 'parse') or not callable(getattr(RequestParser, 'parse')):
                 contract_ready = 'not_ready'
         except:
             contract_ready = 'not_ready'
 
+        # Check if calculate_baseline_prediction is available
         try:
             if not callable(calculate_baseline_prediction):
                 contract_ready = 'not_ready'
