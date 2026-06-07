@@ -77,6 +77,11 @@ export function usePodmanRuntimeStatus() {
         signal: AbortSignal.timeout(5000), // 5 second timeout
       })
 
+      // Handle non-200 responses gracefully
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      }
+
       const data = await response.json()
 
       // Extract ML Runtime status from dependencies
@@ -147,14 +152,29 @@ export function usePodmanRuntimeStatus() {
         lastError: undefined,
       })
     } catch (error) {
-      const errorMsg =
-        error instanceof Error ? error.message : 'Unknown error'
+      // Determine readable error reason
+      const errorReason = (() => {
+        if (!(error instanceof Error)) return 'Backend unavailable'
+        const msg = error.message.toLowerCase()
+        if (msg.includes('econnrefused') || msg.includes('refused'))
+          return 'Backend not running on http://localhost:3000'
+        if (msg.includes('enotfound') || msg.includes('notfound'))
+          return 'Cannot reach backend server'
+        if (msg.includes('timeout'))
+          return 'Backend response timeout'
+        return 'Backend unavailable'
+      })()
+
+      // Log only once at debug level (no console spam)
+      if (process.env.NODE_ENV === 'development') {
+        console.debug('[Podman Status] Dependency check failed:', errorReason)
+      }
 
       const warnings: PodmanRuntimeWarning[] = [
         {
           type: 'runtime_unavailable',
           severity: 'critical',
-          message: `Cannot reach runtime: ${errorMsg}`,
+          message: `Runtime unavailable: ${errorReason}`,
           timestamp: new Date(),
         },
       ]
@@ -174,7 +194,7 @@ export function usePodmanRuntimeStatus() {
           mode: 'unavailable',
           lastHandshakeStatus: 'failed',
         },
-        lastError: errorMsg,
+        lastError: errorReason,
       })
     } finally {
       setLoading(false)
