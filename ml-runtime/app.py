@@ -613,6 +613,192 @@ class ResponseContract:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# 📊 FEATURE ANALYSIS - Real feature-based insights (FÁZE 5.2C)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class FeatureAnalyzer:
+    """
+    FÁZE 5.2C: Analyze real feature patterns to inform deterministic predictions
+    Instead of generic placeholders, use actual feature data
+    """
+
+    @staticmethod
+    def analyze_category_distribution(transactions: List[Dict]) -> Dict:
+        """Analyze category patterns in transactions"""
+        if not transactions:
+            return {}
+
+        category_totals = {}
+        category_counts = {}
+
+        for tx in transactions:
+            category = str(tx.get('category', 'other')).strip().lower()
+            amount = float(tx.get('amount', 0))
+
+            if category not in category_totals:
+                category_totals[category] = 0
+                category_counts[category] = 0
+            category_totals[category] += amount
+            category_counts[category] += 1
+
+        # Calculate category statistics
+        total_expense = sum(category_totals.values())
+        distribution = {}
+
+        for category in sorted(category_totals.keys()):
+            amount = category_totals[category]
+            count = category_counts[category]
+            pct = (amount / total_expense * 100) if total_expense > 0 else 0
+
+            distribution[category] = {
+                'totalAmount': round(amount, 2),
+                'transactionCount': count,
+                'averageAmount': round(amount / count, 2) if count > 0 else 0,
+                'percentOfTotal': round(pct, 1),
+            }
+
+        return distribution
+
+    @staticmethod
+    def analyze_amount_patterns(transactions: List[Dict]) -> Dict:
+        """Analyze amount distribution patterns"""
+        if not transactions:
+            return {}
+
+        amounts = [float(tx.get('amount', 0)) for tx in transactions if float(tx.get('amount', 0)) > 0]
+
+        if not amounts:
+            return {'count': 0}
+
+        amounts_sorted = sorted(amounts)
+        n = len(amounts_sorted)
+
+        # Calculate statistics
+        total = sum(amounts)
+        mean = total / n
+        median = amounts_sorted[n // 2] if n > 0 else 0
+        min_amt = min(amounts)
+        max_amt = max(amounts)
+
+        # Calculate standard deviation
+        variance = sum((x - mean) ** 2 for x in amounts) / n if n > 0 else 0
+        std_dev = variance ** 0.5
+
+        # Calculate percentiles
+        p25_idx = int(n * 0.25)
+        p75_idx = int(n * 0.75)
+        p25 = amounts_sorted[p25_idx] if p25_idx < n else amounts_sorted[-1]
+        p75 = amounts_sorted[p75_idx] if p75_idx < n else amounts_sorted[-1]
+
+        return {
+            'count': n,
+            'total': round(total, 2),
+            'mean': round(mean, 2),
+            'median': round(median, 2),
+            'min': round(min_amt, 2),
+            'max': round(max_amt, 2),
+            'stdDev': round(std_dev, 2),
+            'p25': round(p25, 2),
+            'p75': round(p75, 2),
+            'range': f"{round(min_amt, 2)}–{round(max_amt, 2)}",
+        }
+
+    @staticmethod
+    def analyze_temporal_pattern(transactions: List[Dict]) -> Dict:
+        """Analyze temporal spending patterns"""
+        if not transactions:
+            return {}
+
+        monthly_totals = {}
+        daily_counts = {}
+
+        for tx in transactions:
+            date_str = str(tx.get('date', '')).strip()
+            amount = float(tx.get('amount', 0))
+
+            # Monthly aggregation
+            if date_str and len(date_str) >= 7:
+                month_key = date_str[:7]
+                if month_key not in monthly_totals:
+                    monthly_totals[month_key] = 0
+                monthly_totals[month_key] += amount
+
+            # Daily count (for frequency)
+            if date_str:
+                if date_str not in daily_counts:
+                    daily_counts[date_str] = 0
+                daily_counts[date_str] += 1
+
+        if not monthly_totals:
+            return {}
+
+        sorted_months = sorted(monthly_totals.keys())
+        values = list(monthly_totals.values())
+
+        # Calculate temporal trend
+        if len(sorted_months) >= 2:
+            first_half_avg = sum(values[:len(values)//2]) / (len(values)//2)
+            second_half_avg = sum(values[len(values)//2:]) / (len(values) - len(values)//2)
+            trend = ((second_half_avg - first_half_avg) / first_half_avg * 100) if first_half_avg > 0 else 0
+            trend_direction = 'increasing' if trend > 5 else ('decreasing' if trend < -5 else 'stable')
+        else:
+            trend_direction = 'insufficient'
+            trend = 0
+
+        return {
+            'monthsAnalyzed': len(sorted_months),
+            'timeSpan': f"{sorted_months[0]} to {sorted_months[-1]}",
+            'monthlyAverage': round(sum(values) / len(values), 2),
+            'monthlyMin': round(min(values), 2),
+            'monthlyMax': round(max(values), 2),
+            'trend': round(trend, 1),
+            'trendDirection': trend_direction,
+            'transactionDensity': round(len(transactions) / len(sorted_months), 1),
+        }
+
+    @staticmethod
+    def calculate_feature_impact(
+        transactions: List[Dict],
+        category_distribution: Dict,
+        amount_patterns: Dict
+    ) -> Dict:
+        """Calculate which features have most impact on total expenses"""
+        total_expense = sum(t['totalAmount'] for t in category_distribution.values())
+
+        if total_expense == 0:
+            return {}
+
+        # Find high-impact categories
+        impacts = []
+        for category, stats in category_distribution.items():
+            impact_pct = stats['percentOfTotal']
+            impacts.append({
+                'category': category,
+                'impact': impact_pct,
+                'avgAmount': stats['averageAmount'],
+                'frequency': stats['transactionCount'],
+            })
+
+        impacts_sorted = sorted(impacts, key=lambda x: x['impact'], reverse=True)
+
+        # Identify patterns
+        top_category = impacts_sorted[0] if impacts_sorted else None
+        top_impact = top_category['impact'] if top_category else 0
+
+        # Feature variance (diversity)
+        num_categories = len(category_distribution)
+        diversity = 'high' if num_categories > 5 else ('medium' if num_categories > 2 else 'low')
+
+        return {
+            'topImpactCategory': top_category['category'] if top_category else None,
+            'topCategoryImpact': round(top_impact, 1),
+            'topTransactions': impacts_sorted[:3],
+            'categoryDiversity': diversity,
+            'uniqueCategories': num_categories,
+        }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # 🧮 ML BASELINE LOGIC - Simple deterministic predictions
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -667,7 +853,13 @@ def calculate_baseline_prediction(
             }
         }
 
-    # Group transactions by category
+    # FÁZE 5.2C: Analyze real features to inform deterministic computation
+    category_distribution = FeatureAnalyzer.analyze_category_distribution(transactions)
+    amount_patterns = FeatureAnalyzer.analyze_amount_patterns(transactions)
+    temporal_pattern = FeatureAnalyzer.analyze_temporal_pattern(transactions)
+    feature_impact = FeatureAnalyzer.calculate_feature_impact(transactions, category_distribution, amount_patterns)
+
+    # Group transactions by category (for backward compatibility)
     category_totals = {}
     category_counts = {}
     monthly_totals = {}
@@ -766,7 +958,7 @@ def calculate_baseline_prediction(
         ratio = total_expense / income
         expense_to_income_ratio = f"{ratio:.1f}x"
 
-    # Debug information
+    # Debug information (FÁZE 5.2C: enhanced with real feature insights)
     debug_info = {
         'inputSummary': {
             'transactions': num_transactions,
@@ -781,7 +973,14 @@ def calculate_baseline_prediction(
             'expenseRatio': f"{round(expense_ratio_score * 100, 0):.0f}% (expense:income = {expense_to_income_ratio})",
             'incomeConstraint': f"{round(income_score * 100, 0):.0f}% ('provided' if income > 0 else 'not provided')"
         },
-        'predictionMethod': "weighted recent (60%) + overall (40%) average" if monthly_totals and len(sorted_months) >= 1 else "sum of transactions"
+        'predictionMethod': "weighted recent (60%) + overall (40%) average" if monthly_totals and len(sorted_months) >= 1 else "sum of transactions",
+        # FÁZE 5.2C: Feature-based insights (real data, not placeholders)
+        'featureAnalysis': {
+            'categoryDistribution': category_distribution,
+            'amountPatterns': amount_patterns,
+            'temporalPattern': temporal_pattern,
+            'featureImpact': feature_impact,
+        }
     }
 
     prediction = {
@@ -1046,6 +1245,14 @@ def predict():
         dataset_meta = DatasetMetadata.generate(transactions, parsed['income'])
         response['debugMetadata']['datasetMetadata'] = dataset_meta
         logger.info(f"[DATASET] Features validated: uid={uid}, rows={dataset_meta['datasetSize']['totalRows']}, categories={dataset_meta['datasetSize']['uniqueCategories']}, months={dataset_meta['targets']['monthsAvailable']}")
+
+        # FÁZE 5.2C: Add feature-based analysis to response
+        if '_debug' in prediction and 'featureAnalysis' in prediction['_debug']:
+            response['debugMetadata']['featureAnalysis'] = prediction['_debug']['featureAnalysis']
+            feature_analysis = prediction['_debug']['featureAnalysis']
+            top_category = feature_analysis['featureImpact'].get('topImpactCategory', 'N/A')
+            top_impact = feature_analysis['featureImpact'].get('topCategoryImpact', 0)
+            logger.info(f"[FEATURES] Analyzed: uid={uid}, top_category={top_category}, impact={top_impact}%, diversity={feature_analysis['featureImpact'].get('categoryDiversity', 'N/A')}")
 
         # FÁZE 5.1E: Observability logging for deterministic result
         logger.info(f"[RESULT] Generated: uid={uid}, expense={prediction['totalPredictedExpense']}, confidence={prediction['confidence']}, method=deterministic")
