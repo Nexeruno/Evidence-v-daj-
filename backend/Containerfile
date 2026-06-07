@@ -1,0 +1,43 @@
+# FÁZA 6.2A: Node.js Backend Container
+# Containerfile for Podman (compatible with Docker as well)
+#
+# Build command:
+#   podman build -t node-backend:latest .
+#
+# Run command (in docker-compose):
+#   podman-compose up
+
+FROM node:20-slim
+
+# Set working directory
+WORKDIR /app
+
+# Set environment variables
+ENV NODE_ENV=development \
+    NODE_OPTIONS="--max-old-space-size=512"
+
+# Copy backend package files
+COPY backend/package.json backend/package-lock.json* ./
+
+# Install dependencies
+RUN npm install --omit=optional
+
+# Copy backend code
+COPY backend/server.js ./
+
+# Copy functions directory (for mlRuntimeClient.js import)
+COPY functions/mlRuntimeClient.js ../functions/
+COPY functions/package.json ../functions/
+
+# Copy .env file if it exists (optional)
+COPY .env* ./
+
+# Expose port
+EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD node -e "require('http').get('http://localhost:3000/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})" || exit 1
+
+# Run application
+CMD ["npm", "start"]
