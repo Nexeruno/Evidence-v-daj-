@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class RequestContract:
-    """Validates incoming request shape"""
+    """Validates incoming request shape with detailed validation"""
 
     REQUIRED_FIELDS = {
         'uid': str,
@@ -39,16 +39,60 @@ class RequestContract:
 
     OPTIONAL_FIELDS = {
         'transactions': list,
-        'income': float,
+        'income': (int, float),
         'debugMode': bool,
     }
+
+    # Valid pipeline levels
+    VALID_PIPELINE_LEVELS = ['L1', 'L2', 'L3']
+
+    @staticmethod
+    def validate_semantic_version(version: str) -> bool:
+        """Check if version is semantic version format (e.g., 1.0.0 or 1.0)"""
+        if not isinstance(version, str):
+            return False
+        parts = version.split('.')
+        return len(parts) >= 2 and all(part.isdigit() for part in parts)
+
+    @staticmethod
+    def validate_transaction(tx: Dict, index: int) -> Tuple[bool, str]:
+        """Validate individual transaction structure"""
+        if not isinstance(tx, dict):
+            return False, f"Transaction {index}: must be an object, got {type(tx).__name__}"
+
+        # Check required fields
+        if 'category' not in tx:
+            return False, f"Transaction {index}: missing 'category' field"
+        if 'amount' not in tx:
+            return False, f"Transaction {index}: missing 'amount' field"
+        if 'date' not in tx:
+            return False, f"Transaction {index}: missing 'date' field"
+
+        # Validate types
+        if not isinstance(tx.get('category'), str):
+            return False, f"Transaction {index}: 'category' must be string, got {type(tx.get('category')).__name__}"
+        if not isinstance(tx.get('amount'), (int, float)):
+            return False, f"Transaction {index}: 'amount' must be number, got {type(tx.get('amount')).__name__}"
+        if not isinstance(tx.get('date'), str):
+            return False, f"Transaction {index}: 'date' must be string, got {type(tx.get('date')).__name__}"
+
+        # Validate values
+        if not tx.get('category').strip():
+            return False, f"Transaction {index}: 'category' cannot be empty"
+        if tx.get('amount') < 0:
+            return False, f"Transaction {index}: 'amount' must be >= 0, got {tx.get('amount')}"
+
+        return True, ""
 
     @staticmethod
     def validate(data: Dict) -> Tuple[bool, str]:
         """
-        Validate request shape
+        Validate request shape with detailed error messages
         Returns: (is_valid, error_message)
         """
+        if not isinstance(data, dict):
+            return False, f"Request must be JSON object, got {type(data).__name__}"
+
         # Check required fields
         for field, expected_type in RequestContract.REQUIRED_FIELDS.items():
             if field not in data:
@@ -56,12 +100,118 @@ class RequestContract:
             if not isinstance(data[field], expected_type):
                 return False, f"Field '{field}' must be {expected_type.__name__}, got {type(data[field]).__name__}"
 
+        # Validate uid (non-empty string)
+        uid = data.get('uid', '').strip()
+        if not uid:
+            return False, "Field 'uid' cannot be empty"
+        if len(uid) > 256:
+            return False, f"Field 'uid' exceeds maximum length (256 chars)"
+
+        # Validate pipelineLevel (must be L1, L2, or L3)
+        pipeline_level = data.get('pipelineLevel', '').upper()
+        if pipeline_level not in RequestContract.VALID_PIPELINE_LEVELS:
+            return False, f"Field 'pipelineLevel' must be one of {RequestContract.VALID_PIPELINE_LEVELS}, got '{data.get('pipelineLevel')}'"
+
+        # Validate modelVersion (semantic version)
+        model_version = data.get('modelVersion', '')
+        if not RequestContract.validate_semantic_version(model_version):
+            return False, f"Field 'modelVersion' must be semantic version (e.g., 1.0 or 1.0.0), got '{model_version}'"
+
         # Check optional fields if present
         for field, expected_type in RequestContract.OPTIONAL_FIELDS.items():
-            if field in data and not isinstance(data[field], expected_type):
-                return False, f"Field '{field}' must be {expected_type.__name__}, got {type(data[field]).__name__}"
+            if field in data:
+                value = data[field]
+                if not isinstance(value, expected_type):
+                    type_name = ' or '.join(t.__name__ for t in expected_type) if isinstance(expected_type, tuple) else expected_type.__name__
+                    return False, f"Field '{field}' must be {type_name}, got {type(value).__name__}"
+
+        # Validate transactions array if present
+        if 'transactions' in data:
+            transactions = data.get('transactions', [])
+            if not isinstance(transactions, list):
+                return False, f"Field 'transactions' must be array, got {type(transactions).__name__}"
+
+            if len(transactions) > 10000:
+                return False, f"Field 'transactions' exceeds maximum count (10000 items)"
+
+            for idx, tx in enumerate(transactions):
+                is_valid, error_msg = RequestContract.validate_transaction(tx, idx)
+                if not is_valid:
+                    return False, error_msg
+
+        # Validate income if present
+        if 'income' in data:
+            income = data.get('income')
+            if income < 0:
+                return False, f"Field 'income' must be >= 0, got {income}"
+            if income > 1000000000:  # 1 billion limit
+                return False, f"Field 'income' exceeds maximum value (1,000,000,000)"
 
         return True, ""
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 📥 REQUEST PARSING - Input Parsing & Normalization
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class RequestParser:
+    """Parses and normalizes incoming request data"""
+
+    @staticmethod
+    def parse_transaction(tx: Dict) -> Dict:
+        """Parse and normalize transaction data"""
+        return {
+            'category': str(tx.get('category', '')).strip().lower(),
+            'amount': float(tx.get('amount', 0)),
+            'date': str(tx.get('date', '')).strip(),
+        }
+
+    @staticmethod
+    def parse(data: Dict) -> Dict:
+        """
+        Parse request data and return normalized form
+
+        Returns normalized request with:
+        - uid: trimmed, as-is
+        - pipelineLevel: normalized to uppercase (L1, L2, L3)
+        - modelVersion: as-is
+        - transactions: parsed array of normalized transactions
+        - income: float (default 0)
+        - debugMode: boolean (default False)
+        """
+        # Validate first
+        is_valid, error_msg = RequestContract.validate(data)
+        if not is_valid:
+            raise ValueError(error_msg)
+
+        # Parse and normalize
+        parsed = {
+            'uid': str(data.get('uid', '')).strip(),
+            'pipelineLevel': str(data.get('pipelineLevel', '')).upper(),
+            'modelVersion': str(data.get('modelVersion', '')),
+            'transactions': [
+                RequestParser.parse_transaction(tx)
+                for tx in data.get('transactions', [])
+            ],
+            'income': float(data.get('income', 0)),
+            'debugMode': bool(data.get('debugMode', False)),
+            # Metadata
+            '_originalData': data,  # Keep original for debugging
+        }
+
+        return parsed
+
+    @staticmethod
+    def get_summary(parsed_data: Dict) -> Dict:
+        """Get summary of parsed request for logging"""
+        return {
+            'uid': parsed_data['uid'],
+            'pipelineLevel': parsed_data['pipelineLevel'],
+            'modelVersion': parsed_data['modelVersion'],
+            'transactionCount': len(parsed_data['transactions']),
+            'income': parsed_data['income'],
+            'debugMode': parsed_data['debugMode'],
+        }
 
 
 class ResponseContract:
@@ -168,15 +318,18 @@ def health_check():
 @app.route('/predict', methods=['POST'])
 def predict():
     """
-    FÁZE 5.0A: Main ML prediction endpoint
-    Receives request from Node/Firebase, processes, returns predictions
+    FÁZE 5.0B: Main ML prediction endpoint with input parsing & validation
+    Receives request from Node/Firebase, parses, validates, processes, returns predictions
 
     Request Contract:
     {
         "uid": "user-123",
         "pipelineLevel": "L1",
         "modelVersion": "1.0",
-        "transactions": [...],
+        "transactions": [
+            {"category": "food", "amount": 50.00, "date": "2026-06-01"},
+            {"category": "transport", "amount": 25.00, "date": "2026-06-02"}
+        ],
         "income": 5000.00,
         "debugMode": false
     }
@@ -194,37 +347,53 @@ def predict():
                 "totalPredictedExpense": 3500.00,
                 "confidence": 0.87,
                 "categories": {...},
-                "dataPoints": 45
+                "dataPoints": 45,
+                "pipelineLevel": "L1"
             }
         ],
         "error": null,
         "debugMetadata": {
             "processingTimeMs": 125,
             "pythonRuntime": "3.9",
-            "frameworkVersion": "Flask/1.1.2"
+            "frameworkVersion": "Flask/2.3.2",
+            "parsed": {
+                "uid": "user-123",
+                "pipelineLevel": "L1",
+                "transactionCount": 2,
+                "income": 5000.00
+            }
         }
     }
     """
 
     import time
     start_time = time.time()
+    data = None
 
     try:
-        # Get request data
+        # Step 1: Get and validate JSON format
         data = request.get_json()
 
-        if not data:
-            logger.error('No JSON data in request')
+        if data is None:
+            logger.error('Request missing Content-Type: application/json')
             return jsonify({
                 'status': 'failed',
-                'error': 'No JSON data provided',
+                'error': 'Request must be JSON (Content-Type: application/json)',
                 'debugMetadata': {'processingTimeMs': 0}
             }), 400
 
-        # Validate request contract
+        if not data:
+            logger.error('Empty JSON body')
+            return jsonify({
+                'status': 'failed',
+                'error': 'Request body cannot be empty',
+                'debugMetadata': {'processingTimeMs': 0}
+            }), 400
+
+        # Step 2: Validate request contract (detailed validation)
         is_valid, error_msg = RequestContract.validate(data)
         if not is_valid:
-            logger.error(f'Request validation failed: {error_msg}')
+            logger.warning(f'Request validation failed: {error_msg}', extra={'uid': data.get('uid')})
             return jsonify({
                 'status': 'failed',
                 'error': error_msg,
@@ -232,38 +401,52 @@ def predict():
                 'debugMetadata': {'processingTimeMs': 0}
             }), 400
 
-        logger.info(f"Processing prediction for user: {data.get('uid')}, pipeline: {data.get('pipelineLevel')}")
+        # Step 3: Parse and normalize input
+        try:
+            parsed = RequestParser.parse(data)
+            logger.debug(f"Request parsed successfully: {RequestParser.get_summary(parsed)}")
+        except ValueError as parse_err:
+            logger.error(f'Request parsing failed: {str(parse_err)}')
+            return jsonify({
+                'status': 'failed',
+                'error': f'Input parsing error: {str(parse_err)}',
+                'uid': data.get('uid'),
+                'debugMetadata': {'processingTimeMs': 0}
+            }), 400
 
-        # Extract data
-        uid = data.get('uid')
-        pipeline_level = data.get('pipelineLevel')
-        model_version = data.get('modelVersion')
-        transactions = data.get('transactions', [])
-        income = data.get('income', 0)
-        debug_mode = data.get('debugMode', False)
+        logger.info(f"[PREDICT] Processing: uid={parsed['uid']}, level={parsed['pipelineLevel']}, txns={len(parsed['transactions'])}")
 
-        # Generate prediction
+        # Extract parsed data
+        uid = parsed['uid']
+        pipeline_level = parsed['pipelineLevel']
+        model_version = parsed['modelVersion']
+        transactions = parsed['transactions']
+        income = parsed['income']
+        debug_mode = parsed['debugMode']
+
+        # Step 4: Generate prediction (using parsed data)
         prediction = calculate_baseline_prediction(transactions, income, pipeline_level)
 
         # Build response following contract
         response = ResponseContract.build(data, [prediction])
 
-        # Add processing time
+        # Add processing time and parsing metadata
         processing_time_ms = int((time.time() - start_time) * 1000)
         response['debugMetadata']['processingTimeMs'] = processing_time_ms
+        response['debugMetadata']['parsed'] = RequestParser.get_summary(parsed)
 
-        logger.info(f"Prediction completed for {uid}: confidence={prediction['confidence']}, processedAt={processing_time_ms}ms")
+        logger.info(f"[SUCCESS] Prediction completed: uid={uid}, level={pipeline_level}, confidence={prediction['confidence']}, time={processing_time_ms}ms")
 
         return jsonify(response), 200
 
     except Exception as e:
-        logger.error(f'Prediction error: {str(e)}')
+        logger.error(f'[ERROR] Prediction error: {str(e)}', extra={'uid': data.get('uid') if data else None})
         processing_time_ms = int((time.time() - start_time) * 1000)
 
         return jsonify({
             'status': 'failed',
             'error': str(e),
-            'uid': data.get('uid') if 'data' in locals() else None,
+            'uid': data.get('uid') if data else None,
             'debugMetadata': {'processingTimeMs': processing_time_ms}
         }), 500
 
