@@ -156,15 +156,15 @@ export function usePodmanRuntimeStatus() {
     } catch (error) {
       // Determine readable error reason
       const errorReason = (() => {
-        if (!(error instanceof Error)) return 'Backend unavailable'
+        if (!(error instanceof Error)) return 'Podman stack not running'
         const msg = error.message.toLowerCase()
-        if (msg.includes('econnrefused') || msg.includes('refused'))
-          return 'Backend not running on http://localhost:3000'
+        if (msg.includes('econnrefused') || msg.includes('refused') || msg.includes('failed to fetch'))
+          return 'Podman stack not running (no backend proxy on localhost:3000)'
         if (msg.includes('enotfound') || msg.includes('notfound'))
-          return 'Cannot reach backend server'
+          return 'Cannot reach Podman backend'
         if (msg.includes('timeout'))
-          return 'Backend response timeout'
-        return 'Backend unavailable'
+          return 'Podman backend response timeout'
+        return 'Podman stack not running'
       })()
 
       // Log only once at debug level (no console spam)

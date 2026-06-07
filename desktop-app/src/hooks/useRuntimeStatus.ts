@@ -17,12 +17,12 @@ export interface RuntimeStatus {
   lastError?: string
 }
 
-// Canonical local runtime endpoint — Python server in local dev mode
+// Canonical Python runtime endpoint for local dev mode.
+// The Python Flask server (ml-runtime/app.py) listens on this address.
+// Browser fetches this directly — no proxy layer exists in local dev.
 export const RUNTIME_URL = 'http://localhost:5000'
 
-// Health check goes through the backend proxy, not directly to the Python runtime.
-// Direct browser → localhost:5000 causes ERR_CONNECTION_REFUSED spam when runtime is down.
-const BACKEND_HEALTH_ENDPOINT = 'http://localhost:3000/status/dependencies'
+const HEALTH_ENDPOINT = `${RUNTIME_URL}/health`
 const CHECK_INTERVAL = 5000 // Check every 5 seconds
 
 export function useRuntimeStatus() {
@@ -36,20 +36,13 @@ export function useRuntimeStatus() {
 
   const [loading, setLoading] = useState(true)
 
-  /**
-   * Check runtime health
-   */
   const checkRuntimeHealth = useCallback(async () => {
     try {
-      setStatus((prev) => ({
-        ...prev,
-        lastRequestStatus: 'pending',
-      }))
+      setStatus((prev) => ({ ...prev, lastRequestStatus: 'pending' }))
 
-      const response = await fetch(BACKEND_HEALTH_ENDPOINT, {
+      const response = await fetch(HEALTH_ENDPOINT, {
         method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(4000),
       })
 
       if (!response.ok) {
@@ -58,28 +51,25 @@ export function useRuntimeStatus() {
 
       const data = await response.json()
 
-      // Backend returns { status, dependencies: { mlRuntime: { status, reachable } } }
-      const mlRuntime = data.dependencies?.mlRuntime
-      const isReachable = mlRuntime?.reachable ?? false
-      const isHealthy = mlRuntime?.status === 'healthy'
-      const isValid = isReachable && isHealthy
+      // Python runtime returns { status: 'healthy', service: 'ml-runtime', ... }
+      const isValid = data.status === 'healthy' && data.service === 'ml-runtime'
 
       setStatus({
         available: isValid,
         lastCheckTime: new Date(),
         lastRequestStatus: isValid ? 'success' : 'failed',
         lastResponseValid: isValid,
-        lastError: undefined,
+        lastError: isValid ? undefined : `Unexpected response: status=${data.status}`,
       })
     } catch (error) {
       const errorReason = (() => {
-        if (!(error instanceof Error)) return 'Backend unavailable'
+        if (!(error instanceof Error)) return 'Runtime unavailable'
         const msg = error.message.toLowerCase()
-        if (msg.includes('econnrefused') || msg.includes('refused'))
-          return 'Backend not running on http://localhost:3000'
-        if (msg.includes('enotfound')) return 'Cannot reach backend server'
-        if (msg.includes('timeout')) return 'Backend response timeout'
-        return 'Backend unavailable'
+        if (msg.includes('econnrefused') || msg.includes('refused') || msg.includes('failed to fetch'))
+          return `Python runtime not running on ${RUNTIME_URL}`
+        if (msg.includes('enotfound')) return 'Cannot resolve runtime host'
+        if (msg.includes('timeout') || msg.includes('timed out')) return 'Runtime health check timed out'
+        return 'Runtime unavailable'
       })()
 
       if (process.env.NODE_ENV === 'development') {
@@ -98,27 +88,14 @@ export function useRuntimeStatus() {
     }
   }, [])
 
-  /**
-   * Initial check on mount
-   */
   useEffect(() => {
     checkRuntimeHealth()
   }, [checkRuntimeHealth])
 
-  /**
-   * Periodic health checks
-   */
   useEffect(() => {
-    const interval = setInterval(() => {
-      checkRuntimeHealth()
-    }, CHECK_INTERVAL)
-
+    const interval = setInterval(checkRuntimeHealth, CHECK_INTERVAL)
     return () => clearInterval(interval)
   }, [checkRuntimeHealth])
 
-  return {
-    status,
-    loading,
-    checkNow: checkRuntimeHealth,
-  }
+  return { status, loading, checkNow: checkRuntimeHealth }
 }
