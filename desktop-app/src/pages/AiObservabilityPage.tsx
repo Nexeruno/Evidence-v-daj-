@@ -376,6 +376,65 @@ export function AiObservabilityPage() {
               </p>
             </div>
 
+            {/* Container Health Panel - FÁZA 6.3B */}
+            <div className="mt-6 p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/20">
+              <h3 className="text-lg font-semibold text-light-text dark:text-dark-text mb-4">
+                Container Health
+              </h3>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Runtime Available */}
+                <div
+                  className={`p-4 rounded-lg border ${
+                    podmanStatus.runtimeAvailable
+                      ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+                      : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
+                  }`}
+                >
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Runtime Available</p>
+                  <p className="text-2xl font-bold mt-2">
+                    {podmanLoading ? (
+                      <span className="text-yellow-600 dark:text-yellow-400">Checking...</span>
+                    ) : podmanStatus.runtimeAvailable ? (
+                      <span className="text-green-600 dark:text-green-400">✅ Available</span>
+                    ) : (
+                      <span className="text-red-600 dark:text-red-400">❌ Unavailable</span>
+                    )}
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-500 mt-2">
+                    {podmanStatus.runtimeAvailable
+                      ? 'Container is running and reachable'
+                      : 'Container not responding'}
+                  </p>
+                </div>
+
+                {/* Request Path Health */}
+                <div
+                  className={`p-4 rounded-lg border ${
+                    podmanStatus.requestPathHealthy
+                      ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+                      : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
+                  }`}
+                >
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Request Path Health</p>
+                  <p className="text-2xl font-bold mt-2">
+                    {podmanLoading ? (
+                      <span className="text-yellow-600 dark:text-yellow-400">Checking...</span>
+                    ) : podmanStatus.requestPathHealthy ? (
+                      <span className="text-green-600 dark:text-green-400">✅ Healthy</span>
+                    ) : (
+                      <span className="text-red-600 dark:text-red-400">❌ Unhealthy</span>
+                    )}
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-500 mt-2">
+                    {podmanStatus.requestPathHealthy
+                      ? 'Backend → Runtime communication working'
+                      : 'Communication path has issues'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
             {/* Learning Health Panel */}
             <div className="mt-8">
               <h3 className="text-lg font-semibold text-light-text dark:text-dark-text mb-4">

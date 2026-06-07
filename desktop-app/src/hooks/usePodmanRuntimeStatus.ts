@@ -16,6 +16,8 @@ export interface PodmanRuntimeStatus {
   connectionReadiness?: 'ready' | 'degraded' | 'unavailable'
   mlRuntimeReachable?: boolean
   mlRuntimeHealthy?: boolean
+  runtimeAvailable?: boolean
+  requestPathHealthy?: boolean
   lastError?: string
 }
 
@@ -31,6 +33,8 @@ export function usePodmanRuntimeStatus() {
     connectionReadiness: undefined,
     mlRuntimeReachable: undefined,
     mlRuntimeHealthy: undefined,
+    runtimeAvailable: undefined,
+    requestPathHealthy: undefined,
     lastError: undefined,
   })
 
@@ -60,6 +64,10 @@ export function usePodmanRuntimeStatus() {
       const isHealthy = mlRuntimeDep?.status === 'healthy'
       const readiness = data.status ?? 'unavailable'
 
+      // Container health: runtime available + request path healthy
+      const runtimeAvailable = isReachable && response.ok
+      const requestPathHealthy = isHealthy && isReachable
+
       setStatus({
         connected: response.ok && isReachable,
         lastCheckTime: new Date(),
@@ -67,6 +75,8 @@ export function usePodmanRuntimeStatus() {
         connectionReadiness: readiness,
         mlRuntimeReachable: isReachable,
         mlRuntimeHealthy: isHealthy,
+        runtimeAvailable,
+        requestPathHealthy,
         lastError: undefined,
       })
     } catch (error) {
@@ -80,6 +90,8 @@ export function usePodmanRuntimeStatus() {
         connectionReadiness: 'unavailable',
         mlRuntimeReachable: false,
         mlRuntimeHealthy: false,
+        runtimeAvailable: false,
+        requestPathHealthy: false,
         lastError: errorMsg,
       })
     } finally {
