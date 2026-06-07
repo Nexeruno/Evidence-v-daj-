@@ -620,6 +620,7 @@ class FeatureAnalyzer:
     """
     FÁZE 5.2C: Analyze real feature patterns to inform deterministic predictions
     Instead of generic placeholders, use actual feature data
+    FÁZE 5.2D: Track which features were used, missing, and impactful
     """
 
     @staticmethod
@@ -797,6 +798,94 @@ class FeatureAnalyzer:
             'uniqueCategories': num_categories,
         }
 
+    @staticmethod
+    def track_feature_usage(transactions: List[Dict], income: float = None) -> Dict:
+        """
+        FÁZE 5.2D: Track which features were used vs missing
+        Provides brief overview for debug metadata
+        """
+        # Expected standard features
+        expected_features = ['category', 'amount', 'date']
+        optional_features = ['income']
+
+        # Check presence in transactions
+        used_features = set()
+        feature_completeness = {}
+
+        for tx in transactions:
+            for feature in expected_features:
+                if feature in tx and tx.get(feature):
+                    used_features.add(feature)
+
+        # Calculate completeness percentage
+        if transactions:
+            for feature in expected_features:
+                present = sum(1 for tx in transactions if feature in tx and tx.get(feature))
+                completeness = round(present / len(transactions) * 100, 0)
+                feature_completeness[feature] = int(completeness)
+
+        # Identify missing features
+        missing_features = []
+        for feature in expected_features:
+            if feature not in used_features:
+                missing_features.append(feature)
+
+        return {
+            'usedFeatures': sorted(list(used_features)),
+            'missingFeatures': missing_features,
+            'featureCompleteness': feature_completeness,
+            'incomeProvided': income is not None and income > 0,
+            'summary': f"Used {len(used_features)}/3 features, {len(missing_features)} missing"
+        }
+
+    @staticmethod
+    def identify_impact_drivers(
+        category_distribution: Dict,
+        amount_patterns: Dict,
+        temporal_pattern: Dict
+    ) -> Dict:
+        """
+        FÁZE 5.2D: Identify what most influenced the result
+        Brief summary of key drivers
+        """
+        drivers = []
+
+        # Category impact driver
+        if category_distribution:
+            impacts = sorted(
+                [(cat, stats['percentOfTotal']) for cat, stats in category_distribution.items()],
+                key=lambda x: x[1],
+                reverse=True
+            )
+            if impacts:
+                top_cat, top_pct = impacts[0]
+                if top_pct > 40:
+                    drivers.append(f"{top_cat.capitalize()} dominates ({top_pct:.0f}%)")
+
+        # Volatility driver
+        if amount_patterns and 'stdDev' in amount_patterns and 'mean' in amount_patterns:
+            std_dev = amount_patterns['stdDev']
+            mean = amount_patterns['mean']
+            if mean > 0:
+                cv = (std_dev / mean) * 100  # Coefficient of variation
+                if cv > 50:
+                    drivers.append(f"High volatility (CV {cv:.0f}%)")
+                elif cv < 20:
+                    drivers.append(f"Consistent amounts (CV {cv:.0f}%)")
+
+        # Temporal driver
+        if temporal_pattern and 'trendDirection' in temporal_pattern:
+            trend = temporal_pattern.get('trend', 0)
+            if abs(trend) > 10:
+                direction = "increasing" if trend > 0 else "decreasing"
+                drivers.append(f"Spending {direction} ({trend:.1f}%)")
+
+        return {
+            'topDrivers': drivers[:3],  # Top 3 drivers
+            'driverCount': len(drivers),
+            'summary': ' | '.join(drivers) if drivers else 'Balanced spending pattern'
+        }
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🧮 ML BASELINE LOGIC - Simple deterministic predictions
@@ -858,6 +947,10 @@ def calculate_baseline_prediction(
     amount_patterns = FeatureAnalyzer.analyze_amount_patterns(transactions)
     temporal_pattern = FeatureAnalyzer.analyze_temporal_pattern(transactions)
     feature_impact = FeatureAnalyzer.calculate_feature_impact(transactions, category_distribution, amount_patterns)
+
+    # FÁZE 5.2D: Track feature usage and identify impact drivers
+    feature_usage = FeatureAnalyzer.track_feature_usage(transactions, income)
+    impact_drivers = FeatureAnalyzer.identify_impact_drivers(category_distribution, amount_patterns, temporal_pattern)
 
     # Group transactions by category (for backward compatibility)
     category_totals = {}
@@ -980,6 +1073,17 @@ def calculate_baseline_prediction(
             'amountPatterns': amount_patterns,
             'temporalPattern': temporal_pattern,
             'featureImpact': feature_impact,
+        },
+        # FÁZE 5.2D: Feature usage tracking and impact drivers
+        'featureUsage': {
+            'usedFeatures': feature_usage.get('usedFeatures', []),
+            'missingFeatures': feature_usage.get('missingFeatures', []),
+            'featureCompleteness': feature_usage.get('featureCompleteness', {}),
+            'incomeProvided': feature_usage.get('incomeProvided', False),
+        },
+        'impactDrivers': {
+            'topDrivers': impact_drivers.get('topDrivers', []),
+            'summary': impact_drivers.get('summary', ''),
         }
     }
 
@@ -1253,6 +1357,22 @@ def predict():
             top_category = feature_analysis['featureImpact'].get('topImpactCategory', 'N/A')
             top_impact = feature_analysis['featureImpact'].get('topCategoryImpact', 0)
             logger.info(f"[FEATURES] Analyzed: uid={uid}, top_category={top_category}, impact={top_impact}%, diversity={feature_analysis['featureImpact'].get('categoryDiversity', 'N/A')}")
+
+        # FÁZE 5.2D: Add feature usage and impact drivers to response
+        if '_debug' in prediction:
+            debug_data = prediction['_debug']
+            if 'featureUsage' in debug_data:
+                response['debugMetadata']['featureUsage'] = debug_data['featureUsage']
+            if 'impactDrivers' in debug_data:
+                response['debugMetadata']['impactDrivers'] = debug_data['impactDrivers']
+
+                # Log impact drivers
+                drivers_summary = debug_data['impactDrivers'].get('summary', '')
+                used_features = debug_data['featureUsage'].get('usedFeatures', [])
+                missing_features = debug_data['featureUsage'].get('missingFeatures', [])
+                logger.info(f"[FEATURE-USAGE] uid={uid}, used={','.join(used_features) or 'none'}, missing={','.join(missing_features) or 'none'}")
+                if drivers_summary:
+                    logger.info(f"[IMPACT-DRIVERS] uid={uid}, drivers={drivers_summary}")
 
         # FÁZE 5.1E: Observability logging for deterministic result
         logger.info(f"[RESULT] Generated: uid={uid}, expense={prediction['totalPredictedExpense']}, confidence={prediction['confidence']}, method=deterministic")
