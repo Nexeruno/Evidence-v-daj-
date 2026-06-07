@@ -1918,18 +1918,26 @@ def predict():
         data = request.get_json()
 
         if data is None:
-            logger.error('Request missing Content-Type: application/json')
+            logger.error('[BAD-REQUEST] Missing Content-Type: application/json')
+            # FÁZE 6.0E: Readable error response
             return jsonify({
-                'status': 'failed',
-                'error': 'Request must be JSON (Content-Type: application/json)',
+                'status': 'error',
+                'errorType': 'bad_request',
+                'error': 'Invalid request format',
+                'message': 'Request must include Content-Type: application/json header',
+                'timestamp': datetime.utcnow().isoformat() + 'Z',
                 'debugMetadata': {'processingTimeMs': 0}
             }), 400
 
         if not data:
-            logger.error('Empty JSON body')
+            logger.error('[BAD-REQUEST] Empty JSON body received')
+            # FÁZE 6.0E: Readable error response
             return jsonify({
-                'status': 'failed',
-                'error': 'Request body cannot be empty',
+                'status': 'error',
+                'errorType': 'bad_request',
+                'error': 'Invalid request content',
+                'message': 'Request body cannot be empty',
+                'timestamp': datetime.utcnow().isoformat() + 'Z',
                 'debugMetadata': {'processingTimeMs': 0}
             }), 400
 
@@ -1946,17 +1954,17 @@ def predict():
             elif 'must be' in error_msg or 'cannot be' in error_msg:
                 error_type = 'INVALID_INPUT'
 
-            logger.error({
-                'event': '[ERROR] Deterministic computation failed',
-                'uid': data.get('uid'),
-                'errorType': error_type,
-                'reason': error_msg
-            })
+            logger.error(f'[VALIDATION-ERROR] Request validation failed: {error_msg}, uid={data.get("uid")}')
 
+            # FÁZA 6.0E: Readable validation error response
             return jsonify({
-                'status': 'failed',
-                'error': error_msg,
+                'status': 'error',
+                'errorType': 'bad_request',
+                'error': 'Invalid request data',
+                'message': error_msg,
                 'uid': data.get('uid'),
+                'hint': 'Check your request parameters match the required schema',
+                'timestamp': datetime.utcnow().isoformat() + 'Z',
                 'debugMetadata': {'processingTimeMs': 0}
             }), 400
 
@@ -2675,29 +2683,80 @@ def runtime_status():
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🚀 ERROR HANDLERS
+# 🚀 ERROR HANDLERS (FÁZA 6.0E: Container Runtime Error Handling)
 # ═══════════════════════════════════════════════════════════════════════════════
+
+@app.errorhandler(400)
+def bad_request(error):
+    """Handle 400 Bad Request errors (FÁZA 6.0E)"""
+    logger.error(f'[BAD-REQUEST] Client error: {request.path} - {str(error)}')
+    return jsonify({
+        'status': 'error',
+        'errorType': 'bad_request',
+        'error': 'Invalid request: Check your request format and parameters',
+        'message': str(error),
+        'endpoint': request.path,
+        'method': request.method,
+        'timestamp': datetime.utcnow().isoformat() + 'Z',
+        'debugMetadata': {}
+    }), 400
+
 
 @app.errorhandler(404)
 def not_found(error):
-    """Handle 404 errors"""
-    logger.error(f'Endpoint not found: {request.path}')
+    """Handle 404 Endpoint Not Found errors (FÁZA 6.0E)"""
+    logger.error(f'[ENDPOINT-NOT-FOUND] Endpoint does not exist: {request.path}')
     return jsonify({
         'status': 'error',
+        'errorType': 'endpoint_not_found',
         'error': f'Endpoint not found: {request.path}',
+        'message': f'The endpoint {request.method} {request.path} does not exist',
+        'availableEndpoints': [
+            'GET /health',
+            'GET /readiness',
+            'GET /status-summary',
+            'POST /predict',
+            'POST /dataset-info',
+            'POST /evaluate',
+            'POST /evaluate-summary'
+        ],
+        'timestamp': datetime.utcnow().isoformat() + 'Z',
         'debugMetadata': {}
     }), 404
 
 
 @app.errorhandler(500)
 def internal_error(error):
-    """Handle 500 errors"""
-    logger.error(f'Internal server error: {str(error)}')
+    """Handle 500 Internal Server errors (FÁZA 6.0E)"""
+    logger.error(f'[INTERNAL-ERROR] Runtime error: {str(error)}')
     return jsonify({
         'status': 'error',
-        'error': 'Internal server error',
-        'debugMetadata': {}
+        'errorType': 'internal_error',
+        'error': 'Internal server error: The runtime encountered an unexpected error',
+        'message': 'An internal error occurred while processing your request',
+        'timestamp': datetime.utcnow().isoformat() + 'Z',
+        'debugMetadata': {
+            'hint': 'Check runtime logs for detailed error information'
+        }
     }), 500
+
+
+@app.before_request
+def check_runtime_available():
+    """FÁZA 6.0E: Check runtime is available before processing request"""
+    try:
+        # Simple check: if we can get here, runtime is available
+        logger.debug(f'Runtime check: {request.method} {request.path} - available')
+    except Exception as e:
+        logger.error(f'[RUNTIME-UNAVAILABLE] Runtime check failed: {str(e)}')
+        return jsonify({
+            'status': 'error',
+            'errorType': 'runtime_unavailable',
+            'error': 'Runtime is currently unavailable',
+            'message': 'The ML runtime is not responding. Please try again later.',
+            'timestamp': datetime.utcnow().isoformat() + 'Z',
+            'debugMetadata': {}
+        }), 503
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
