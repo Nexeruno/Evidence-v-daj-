@@ -37,6 +37,9 @@ export interface PodmanRuntimeStatus {
   lastError?: string
 }
 
+// Canonical runtime endpoint (Podman multi-service network)
+const RUNTIME_ENDPOINT = 'http://ml-runtime:5000'
+
 const BACKEND_URL = 'http://localhost:3000'
 const DEPENDENCIES_ENDPOINT = `${BACKEND_URL}/status/dependencies`
 const CHECK_INTERVAL = 5000 // Check every 5 seconds
@@ -87,7 +90,7 @@ export function usePodmanRuntimeStatus() {
       const requestPathHealthy = isHealthy && isReachable
 
       // Extract runtime details
-      const endpoint = mlRuntimeDep?.url ?? 'http://ml-runtime:5000'
+      const endpoint = mlRuntimeDep?.url ?? RUNTIME_ENDPOINT
       const mode = readiness
       const lastHandshakeTime = mlRuntimeDep?.lastCheck ? new Date(mlRuntimeDep.lastCheck) : undefined
       const lastHandshakeStatus = isHealthy ? 'success' : 'failed'
@@ -167,7 +170,7 @@ export function usePodmanRuntimeStatus() {
         requestPathHealthy: false,
         warnings,
         details: {
-          endpoint: 'http://ml-runtime:5000',
+          endpoint: RUNTIME_ENDPOINT,
           mode: 'unavailable',
           lastHandshakeStatus: 'failed',
         },

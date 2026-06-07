@@ -384,7 +384,7 @@ export function AiObservabilityPage() {
               <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
                 {runtimeStatus.available
                   ? `✅ Python runtime is available and responding correctly`
-                  : `⚠️ Python runtime is not available. Check if it's running on localhost:5000`}
+                  : `⚠️ Python runtime is not available. Check if it's running on http://localhost:5000`}
               </p>
             </div>
 
