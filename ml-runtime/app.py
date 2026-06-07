@@ -221,6 +221,7 @@ class ResponseContract:
     def build(request_data: Dict, predictions: List[Dict], error: str = None) -> Dict:
         """
         Build response following contract shape
+        FÁZE 5.1B: Added top-level 'result' field with confidence and confidence factors
 
         Response Contract Shape:
         {
@@ -229,11 +230,22 @@ class ResponseContract:
             "pipelineLevel": "L1" | "L2" | "L3",
             "modelVersion": "1.0",
             "processedAt": "2026-06-07T15:30:00.000Z",
+            "result": {
+                "predictedExpense": 3500.00,
+                "confidence": 0.87,
+                "confidenceFactors": {
+                    "dataFrequency": 0.5,
+                    "transactionCount": 0.9,
+                    "expenseRatio": 0.2,
+                    "incomeConstraint": 1.0
+                }
+            },
             "predictions": [
                 {
                     "period": "2026-06",
                     "totalPredictedExpense": 3500.00,
                     "confidence": 0.87,
+                    "confidenceFactors": {...},
                     "categories": {"food": 1200.00, "transport": 800.00},
                     "dataPoints": 45,
                     "pipelineLevel": "L1"
@@ -250,12 +262,23 @@ class ResponseContract:
         """
         status = 'failed' if error else 'success'
 
+        # Build result field from first prediction if success
+        result = None
+        if not error and predictions and len(predictions) > 0:
+            first_pred = predictions[0]
+            result = {
+                'predictedExpense': first_pred.get('totalPredictedExpense', 0.0),
+                'confidence': first_pred.get('confidence', 0.0),
+                'confidenceFactors': first_pred.get('confidenceFactors', {})
+            }
+
         response = {
             'status': status,
             'uid': request_data.get('uid'),
             'pipelineLevel': request_data.get('pipelineLevel'),
             'modelVersion': request_data.get('modelVersion'),
             'processedAt': datetime.utcnow().isoformat() + 'Z',
+            'result': result,
             'predictions': predictions if not error else [],
             'error': error,
             'debugMetadata': {
@@ -271,10 +294,11 @@ class ResponseContract:
     def validate(response: Dict) -> Tuple[bool, str]:
         """
         Validate response shape matches contract
+        FÁZE 5.1B: Validates result field and confidenceFactors
         Returns: (is_valid, error_message)
         """
-        # Check required top-level fields
-        required_fields = ['status', 'uid', 'pipelineLevel', 'modelVersion', 'processedAt', 'predictions', 'error', 'debugMetadata']
+        # Check required top-level fields (including new 'result' field)
+        required_fields = ['status', 'uid', 'pipelineLevel', 'modelVersion', 'processedAt', 'result', 'predictions', 'error', 'debugMetadata']
         for field in required_fields:
             if field not in response:
                 return False, f"Response missing required field: {field}"
@@ -282,6 +306,35 @@ class ResponseContract:
         # Validate status
         if response['status'] not in ['success', 'failed']:
             return False, f"Response 'status' must be 'success' or 'failed', got '{response['status']}'"
+
+        # Validate result field (if success)
+        if response['status'] == 'success':
+            if response['result'] is None:
+                return False, "Response 'result' must not be null for successful response"
+            if not isinstance(response['result'], dict):
+                return False, f"Response 'result' must be object, got {type(response['result']).__name__}"
+
+            # Validate result fields
+            result_required = ['predictedExpense', 'confidence', 'confidenceFactors']
+            for field in result_required:
+                if field not in response['result']:
+                    return False, f"Result missing field: {field}"
+
+            # Validate result types
+            if not isinstance(response['result']['predictedExpense'], (int, float)):
+                return False, "Result 'predictedExpense' must be number"
+            if not isinstance(response['result']['confidence'], (int, float)):
+                return False, "Result 'confidence' must be number"
+            if not isinstance(response['result']['confidenceFactors'], dict):
+                return False, "Result 'confidenceFactors' must be object"
+
+            # Validate confidence factors
+            factors_required = ['dataFrequency', 'transactionCount', 'expenseRatio', 'incomeConstraint']
+            for factor in factors_required:
+                if factor not in response['result']['confidenceFactors']:
+                    return False, f"ConfidenceFactors missing: {factor}"
+                if not isinstance(response['result']['confidenceFactors'][factor], (int, float)):
+                    return False, f"ConfidenceFactors '{factor}' must be number"
 
         # Validate predictions array
         if not isinstance(response['predictions'], list):
@@ -297,7 +350,7 @@ class ResponseContract:
                 return False, f"Prediction {idx} must be object, got {type(pred).__name__}"
 
             # Check required prediction fields
-            pred_required = ['period', 'totalPredictedExpense', 'confidence', 'categories', 'dataPoints', 'pipelineLevel']
+            pred_required = ['period', 'totalPredictedExpense', 'confidence', 'confidenceFactors', 'categories', 'dataPoints', 'pipelineLevel']
             for field in pred_required:
                 if field not in pred:
                     return False, f"Prediction {idx} missing field: {field}"
@@ -309,6 +362,8 @@ class ResponseContract:
                 return False, f"Prediction {idx} 'totalPredictedExpense' must be number"
             if not isinstance(pred['confidence'], (int, float)):
                 return False, f"Prediction {idx} 'confidence' must be number"
+            if not isinstance(pred['confidenceFactors'], dict):
+                return False, f"Prediction {idx} 'confidenceFactors' must be object"
             if not isinstance(pred['categories'], dict):
                 return False, f"Prediction {idx} 'categories' must be object"
             if not isinstance(pred['dataPoints'], int):
@@ -361,7 +416,13 @@ def calculate_baseline_prediction(
             'confidence': 0.0,
             'categories': {},
             'dataPoints': 0,
-            'pipelineLevel': pipeline_level
+            'pipelineLevel': pipeline_level,
+            'confidenceFactors': {
+                'dataFrequency': 0.0,
+                'transactionCount': 0.0,
+                'expenseRatio': 0.0,
+                'incomeConstraint': 0.0
+            }
         }
 
     # Group transactions by category
@@ -408,23 +469,43 @@ def calculate_baseline_prediction(
         else:
             predicted_expense = total_expense
 
-        # Confidence based on:
-        # 1. Data frequency (more months = more reliable trend)
-        # 2. Transaction count (more data points = more reliable)
-        # 3. Income constraint (if expenses < income)
+        # Confidence based on 4 rule-based factors:
+        # 1. Data frequency (30%): more months = more reliable trend
+        # 2. Transaction count (30%): more data points = more reliable
+        # 3. Expense ratio (20%): good if expenses < income
+        # 4. Income constraint (20%): provided or not
+
         months_score = min(1.0, num_months / 12)  # Full score at 12 months
         txns_score = min(1.0, num_transactions / 50)  # Full score at 50+ txns
         expense_ratio = min(1.0, predicted_expense / (income or 1))  # Good if < income
+        expense_ratio_score = (1 - abs(1 - expense_ratio)) * 0.2
         income_score = 1.0 if income > 0 else 0.2
 
-        # Weighted confidence calculation
+        # Weighted confidence calculation (4 factors)
         confidence = (months_score * 0.3 + txns_score * 0.3 +
-                     (1 - abs(1 - expense_ratio)) * 0.2 + income_score * 0.2)
+                     expense_ratio_score + income_score * 0.2)
         confidence = max(0.1, min(0.99, confidence))  # Clamp 0.1-0.99
+
+        # Store confidence factors for debugging
+        confidence_factors = {
+            'dataFrequency': round(months_score, 2),
+            'transactionCount': round(txns_score, 2),
+            'expenseRatio': round(expense_ratio_score, 2),
+            'incomeConstraint': round(income_score, 2)
+        }
     else:
         # No monthly data, use simple average
         predicted_expense = total_expense
+        txns_score = min(1.0, num_transactions / 50)
         confidence = min(0.95, 0.4 + (num_transactions * 0.01))
+
+        # Confidence factors for no-monthly-data case
+        confidence_factors = {
+            'dataFrequency': 0.0,
+            'transactionCount': round(txns_score, 2),
+            'expenseRatio': 0.0,
+            'incomeConstraint': 1.0 if income > 0 else 0.2
+        }
 
     # Build response with normalized categories
     response_categories = {}
@@ -441,6 +522,7 @@ def calculate_baseline_prediction(
         'period': current_period,
         'totalPredictedExpense': round(predicted_expense, 2),
         'confidence': round(confidence, 2),
+        'confidenceFactors': confidence_factors,
         'categories': response_categories,
         'dataPoints': num_transactions,
         'pipelineLevel': pipeline_level
