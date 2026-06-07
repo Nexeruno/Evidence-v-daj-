@@ -7,6 +7,8 @@ export const SYMBOLS = {
   LOADING: '⏳',
   INFO: 'ℹ️',
   PENDING: '⏳',
+  CHECK: '✓',
+  GEAR: '⚙️',
 
   // User types
   MANUAL: '👤',
