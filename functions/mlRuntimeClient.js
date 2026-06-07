@@ -245,6 +245,71 @@ async function callMlRuntime(requestData) {
 }
 
 /**
+ * FÁZE 5.4A: Call evaluation endpoint for dataset analysis
+ * @param {Object} requestData - Evaluation request payload
+ * @returns {Promise<Object>} - Evaluation summary response
+ */
+async function callEvaluateSummary(requestData) {
+  const uid = requestData.uid;
+  const pipelineLevel = requestData.pipelineLevel;
+  const callStartTime = Date.now();
+
+  console.log(
+    `[EVAL] 📊 EVALUATION STARTED | uid=${uid}, txns=${requestData.transactions?.length || 0}`
+  );
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), PREDICT_TIMEOUT);
+
+    const response = await fetch(`${ML_RUNTIME_URL}/evaluate-summary`, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'Node-Firebase-ML-Client/5.0.0'
+      },
+      body: JSON.stringify(requestData)
+    });
+
+    clearTimeout(timeoutId);
+
+    const httpStatus = response.status;
+    const elapsedMs = Date.now() - callStartTime;
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error(`[EVAL] ❌ HTTP ERROR | status=${httpStatus}, error=${data.error} | uid=${uid}`);
+      throw new Error(data.error || `HTTP ${httpStatus}`);
+    }
+
+    if (data.status !== 'success') {
+      console.error(`[EVAL] ❌ EVALUATION FAILED | status=${data.status} | uid=${uid}`);
+      throw new Error(data.error || 'Evaluation failed');
+    }
+
+    const summary = data.evaluation || {};
+    const verdict = summary.readiness?.verdict || 'unknown';
+    const totalRows = summary.summary?.total_row_count || 0;
+    const validRows = summary.summary?.valid_result_count || 0;
+
+    console.log(
+      `[EVAL] ✅ SUCCESS | uid=${uid}, verdict=${verdict}, rows=${totalRows}, valid=${validRows}, elapsed=${elapsedMs}ms`
+    );
+
+    return data;
+
+  } catch (error) {
+    const elapsedMs = Date.now() - callStartTime;
+    console.error(
+      `[EVAL] ❌ ERROR | uid=${uid}, error=${error.message}, elapsed=${elapsedMs}ms`
+    );
+    throw error;
+  }
+}
+
+/**
  * Get ML runtime status
  * @returns {Promise<Object>} - Runtime status and capabilities
  */
@@ -354,6 +419,7 @@ async function getMlRuntimeStatus() {
 
 module.exports = {
   callMlRuntime,
+  callEvaluateSummary,
   checkMlRuntimeHealth,
   getMlRuntimeStatus,
   ML_RUNTIME_URL

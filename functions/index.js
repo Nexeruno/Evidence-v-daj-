@@ -2313,7 +2313,49 @@ exports.runMlPipeline = functions
 
       const durationMs = Date.now() - startTime;
 
-      // Save successful run
+      // FÁZE 5.4A: Collect evaluation summary data
+      let evaluationSummary = null;
+      try {
+        // Get a sample of transactions for evaluation
+        const sampleUser = users.find(u => {
+          const userTransactions = allUserTransactions?.[u.uid];
+          return userTransactions && userTransactions.length > 0;
+        });
+
+        if (sampleUser) {
+          const sampleTransactions = allUserTransactions?.[sampleUser.uid] || [];
+          const sampleIncome = allUserIncomeData?.[sampleUser.uid] || [];
+
+          const evaluationRequest = {
+            uid: 'batch-eval',
+            pipelineLevel: ML_PIPELINE_LEVEL,
+            modelVersion: ML_VERSION,
+            transactions: sampleTransactions.map(t => ({
+              category: t.kategorie,
+              amount: t.castka,
+              date: t.datum,
+            })),
+            income: sampleIncome.reduce((s, i) => s + i.castka, 0),
+          };
+
+          const evalResponse = await mlRuntimeClient.callEvaluateSummary(evaluationRequest);
+          evaluationSummary = evalResponse.evaluation || null;
+
+          logger.info({
+            event: 'mlPipeline_evaluationCompleted',
+            verdict: evaluationSummary?.readiness?.verdict || 'unknown',
+            rowsProcessed: evaluationSummary?.summary?.total_row_count || 0,
+            validRows: evaluationSummary?.summary?.valid_result_count || 0,
+          });
+        }
+      } catch (evalErr) {
+        logger.warn({
+          event: 'mlPipeline_evaluationFailed',
+          error: evalErr.message,
+        });
+      }
+
+      // Save successful run with evaluation summary
       await db.collection('mlRuns').add({
         status: 'success',
         pipelineLevel: ML_PIPELINE_LEVEL,
@@ -2325,6 +2367,15 @@ exports.runMlPipeline = functions
         durationMs,
         errorMessage: null,
         errorCode: null,
+        // FÁZA 5.4A: Evaluation observability
+        evaluation: evaluationSummary ? {
+          status: 'evaluated',
+          verdict: evaluationSummary.readiness?.verdict || null,
+          totalRows: evaluationSummary.summary?.total_row_count || 0,
+          validRows: evaluationSummary.summary?.valid_result_count || 0,
+          errorRows: evaluationSummary.summary?.failed_row_count || 0,
+          successRate: evaluationSummary.comparison?.success_rate || 0,
+        } : null,
       });
 
       logger.info({

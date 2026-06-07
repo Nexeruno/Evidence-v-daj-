@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import { useMlRuns } from '@/hooks/useFirestore'
+import { SYMBOLS } from '@/utils/symbols'
 
 function formatTs(ts: any): string {
-  if (!ts) return '—'
+  if (!ts) return SYMBOLS.DASH
   try {
     const d = ts.seconds ? new Date(ts.seconds * 1000) : new Date(ts)
-    if (isNaN(d.getTime())) return '—'
+    if (isNaN(d.getTime())) return SYMBOLS.DASH
     return d.toLocaleString()
-  } catch { return '—' }
+  } catch { return SYMBOLS.DASH }
 }
 
 export function MlRunsPage() {
@@ -78,7 +79,7 @@ export function MlRunsPage() {
         <div className="overflow-x-auto">
           {error ? (
             <div className="px-6 py-8 text-center">
-              <div className="text-red-600 dark:text-red-400 font-semibold mb-2">⚠️ Error loading runs</div>
+              <div className="text-red-600 dark:text-red-400 font-semibold mb-2">{SYMBOLS.WARNING} Error loading runs</div>
               <p className="text-sm text-light-textMuted dark:text-dark-textMuted">{error.message}</p>
             </div>
           ) : loading ? (
@@ -97,6 +98,11 @@ export function MlRunsPage() {
                   <th className="px-6 py-3 text-left font-semibold text-light-text dark:text-dark-text">Predictions</th>
                   <th className="px-6 py-3 text-left font-semibold text-light-text dark:text-dark-text">Avg Confidence</th>
                   <th className="px-6 py-3 text-left font-semibold text-light-text dark:text-dark-text">Duration</th>
+                  <th className="px-6 py-3 text-left font-semibold text-light-text dark:text-dark-text">Users</th>
+                  <th className="px-6 py-3 text-left font-semibold text-light-text dark:text-dark-text">Eval Status</th>
+                  <th className="px-6 py-3 text-left font-semibold text-light-text dark:text-dark-text">Eval Rows</th>
+                  <th className="px-6 py-3 text-left font-semibold text-light-text dark:text-dark-text">Verdict</th>
+                  <th className="px-6 py-3 text-left font-semibold text-light-text dark:text-dark-text">Errors</th>
                   <th className="px-6 py-3 text-left font-semibold text-light-text dark:text-dark-text">Type</th>
                 </tr>
               </thead>
@@ -110,25 +116,60 @@ export function MlRunsPage() {
                       <span className={run.pipelineLevel === 1
                         ? 'text-green-600 dark:text-green-400 font-semibold'
                         : 'text-blue-600 dark:text-blue-400 font-semibold'}>
-                        L{run.pipelineLevel ?? '?'}
+                        L{run.pipelineLevel ?? SYMBOLS.DASH}
                       </span>
                     </td>
                     <td className="px-6 py-4">
                       <span className={`px-2 py-1 rounded text-xs font-semibold ${getStatusClasses(run.status)}`}>
-                        {run.status ?? '—'}
+                        {run.status ?? SYMBOLS.DASH}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-light-text dark:text-dark-text">
-                      {run.predictionsCreated ?? '—'}
+                      {run.predictionsCreated ?? SYMBOLS.DASH}
                     </td>
                     <td className="px-6 py-4 text-light-text dark:text-dark-text">
-                      {run.averageConfidence != null ? `${run.averageConfidence.toFixed(1)}%` : '—'}
+                      {run.averageConfidence != null ? `${run.averageConfidence.toFixed(1)}%` : SYMBOLS.DASH}
                     </td>
                     <td className="px-6 py-4 text-light-text dark:text-dark-text">
-                      {run.durationMs ? `${(run.durationMs / 1000).toFixed(1)}s` : '—'}
+                      {run.durationMs ? `${(run.durationMs / 1000).toFixed(1)}s` : SYMBOLS.DASH}
+                    </td>
+                    <td className="px-6 py-4 text-light-text dark:text-dark-text">
+                      {run.usersProcessed ?? SYMBOLS.DASH}
+                    </td>
+                    <td className="px-6 py-4 text-light-text dark:text-dark-text text-xs">
+                      {run.evaluation?.status === 'evaluated' ? (
+                        <span className="text-blue-600 dark:text-blue-400 font-semibold">Evaluated</span>
+                      ) : run.evaluation ? (
+                        <span className="text-yellow-600 dark:text-yellow-400">Pending</span>
+                      ) : (
+                        SYMBOLS.DASH
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-light-text dark:text-dark-text text-xs">
+                      {run.evaluation?.totalRows != null ? (
+                        <span>{run.evaluation.validRows}/{run.evaluation.totalRows}</span>
+                      ) : (
+                        SYMBOLS.DASH
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-light-text dark:text-dark-text text-xs">
+                      {run.evaluation?.verdict ? (
+                        <span className={
+                          run.evaluation.verdict === 'usable' ? 'text-green-600 dark:text-green-400 font-semibold' :
+                          run.evaluation.verdict === 'partially_usable' ? 'text-orange-600 dark:text-orange-400 font-semibold' :
+                          'text-red-600 dark:text-red-400 font-semibold'
+                        }>
+                          {run.evaluation.verdict}
+                        </span>
+                      ) : (
+                        SYMBOLS.DASH
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-light-text dark:text-dark-text">
+                      {run.errorCount != null ? run.errorCount : SYMBOLS.DASH}
                     </td>
                     <td className="px-6 py-4 text-light-textMuted dark:text-dark-textMuted text-xs">
-                      {run.modelType ?? run.mode ?? '—'}
+                      {run.modelType ?? run.mode ?? SYMBOLS.DASH}
                     </td>
                   </tr>
                 ))}
