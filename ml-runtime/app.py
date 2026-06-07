@@ -221,7 +221,8 @@ class ResponseContract:
     def build(request_data: Dict, predictions: List[Dict], error: str = None) -> Dict:
         """
         Build response following contract shape
-        FÁZE 5.1B: Added top-level 'result' field with confidence and confidence factors
+        FÁZE 5.1B: Added top-level 'result' field with confidence
+        FÁZE 5.1C: Added input summary and confidence explanation in debugMetadata
 
         Response Contract Shape:
         {
@@ -256,6 +257,20 @@ class ResponseContract:
                 "processingTimeMs": 125,
                 "pythonRuntime": "3.9",
                 "frameworkVersion": "Flask/2.3.2",
+                "inputs": {
+                    "transactions": 45,
+                    "monthsOfHistory": 6,
+                    "totalHistoricalExpense": 23500.00,
+                    "income": 5000.00,
+                    "expenseToIncomeRatio": "4.7x"
+                },
+                "confidenceExplained": {
+                    "dataFrequency": "50% (6 months)",
+                    "transactionCount": "90% (45 txns)",
+                    "expenseRatio": "20% (4.7x income)",
+                    "incomeConstraint": "100% (provided)"
+                },
+                "calculationMethod": "weighted recent (60%) + overall (40%) average",
                 "parsed": {...}
             }
         }
@@ -422,6 +437,22 @@ def calculate_baseline_prediction(
                 'transactionCount': 0.0,
                 'expenseRatio': 0.0,
                 'incomeConstraint': 0.0
+            },
+            '_debug': {
+                'inputSummary': {
+                    'transactions': 0,
+                    'monthsOfHistory': 0,
+                    'totalHistoricalExpense': 0.0,
+                    'income': round(income, 2) if income > 0 else None,
+                    'expenseToIncomeRatio': 'N/A'
+                },
+                'confidenceBreakdown': {
+                    'dataFrequency': '0% (no history)',
+                    'transactionCount': '0% (no transactions)',
+                    'expenseRatio': '0% (no data)',
+                    'incomeConstraint': '100% (provided)' if income > 0 else '20% (not provided)'
+                },
+                'predictionMethod': 'no data available'
             }
         }
 
@@ -518,6 +549,30 @@ def calculate_baseline_prediction(
     else:
         response_categories = {}
 
+    # Calculate expense-to-income ratio for debugging
+    expense_to_income_ratio = "N/A"
+    if income > 0:
+        ratio = total_expense / income
+        expense_to_income_ratio = f"{ratio:.1f}x"
+
+    # Debug information
+    debug_info = {
+        'inputSummary': {
+            'transactions': num_transactions,
+            'monthsOfHistory': len(monthly_totals) if monthly_totals else 0,
+            'totalHistoricalExpense': round(total_expense, 2),
+            'income': round(income, 2) if income > 0 else None,
+            'expenseToIncomeRatio': expense_to_income_ratio
+        },
+        'confidenceBreakdown': {
+            'dataFrequency': f"{round(months_score * 100, 0):.0f}% ({len(sorted_months) if monthly_totals else 0} months)" if monthly_totals else "0% (no history)",
+            'transactionCount': f"{round(txns_score * 100, 0):.0f}% ({num_transactions} txns)" if monthly_totals else f"{round(txns_score * 100, 0):.0f}% ({num_transactions} txns)",
+            'expenseRatio': f"{round(expense_ratio_score * 100, 0):.0f}% (expense:income = {expense_to_income_ratio})",
+            'incomeConstraint': f"{round(income_score * 100, 0):.0f}% ('provided' if income > 0 else 'not provided')"
+        },
+        'predictionMethod': "weighted recent (60%) + overall (40%) average" if monthly_totals and len(sorted_months) >= 1 else "sum of transactions"
+    }
+
     prediction = {
         'period': current_period,
         'totalPredictedExpense': round(predicted_expense, 2),
@@ -525,7 +580,8 @@ def calculate_baseline_prediction(
         'confidenceFactors': confidence_factors,
         'categories': response_categories,
         'dataPoints': num_transactions,
-        'pipelineLevel': pipeline_level
+        'pipelineLevel': pipeline_level,
+        '_debug': debug_info  # Internal debug info
     }
 
     return prediction
@@ -707,6 +763,18 @@ def predict():
         processing_time_ms = int((time.time() - start_time) * 1000)
         response['debugMetadata']['processingTimeMs'] = processing_time_ms
         response['debugMetadata']['parsed'] = RequestParser.get_summary(parsed)
+
+        # FÁZE 5.1C: Add input and confidence explanation
+        if '_debug' in prediction:
+            debug_data = prediction['_debug']
+            response['debugMetadata']['inputs'] = debug_data['inputSummary']
+            response['debugMetadata']['confidenceExplained'] = debug_data['confidenceBreakdown']
+            response['debugMetadata']['calculationMethod'] = debug_data['predictionMethod']
+
+            # Remove _debug from prediction objects (internal only)
+            for pred in response['predictions']:
+                if '_debug' in pred:
+                    del pred['_debug']
 
         logger.info(f"[SUCCESS] Prediction completed: uid={uid}, level={pipeline_level}, confidence={prediction['confidence']}, time={processing_time_ms}ms")
 
