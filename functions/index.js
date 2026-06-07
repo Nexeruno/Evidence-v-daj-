@@ -2121,6 +2121,17 @@ exports.runMlPipeline = functions
 
           const income = await loadUserIncome(user.uid);
 
+          // FÁZE 5.2A: Python runtime connected to real dataset-based input
+          logger.info({
+            event: 'mlPipeline_pythonRuntime_realDatasetInput',
+            uid: user.uid,
+            dataSource: 'Firestore (real user transactions)',
+            transactionCount: transactions.length,
+            incomeRecords: income.length,
+            totalExpense: transactions.reduce((sum, t) => sum + t.castka, 0),
+            totalIncome: income.reduce((sum, i) => sum + i.castka, 0)
+          });
+
           // FÁZE 5.0A: Call external Python runtime instead of Node.js baseline
           const runtimeRequest = {
             uid: user.uid,
@@ -2401,6 +2412,17 @@ exports.testMlPipeline = functions.region(REGION).https.onRequest(async (req, re
             }
 
             const income = await loadUserIncome(user.uid);
+
+            // FÁZE 5.2A: Python runtime connected to real dataset-based input
+            logger.info({
+              event: 'mlPipeline_pythonRuntime_realDatasetInput',
+              uid: user.uid,
+              dataSource: 'Firestore (real user transactions)',
+              transactionCount: transactions.length,
+              incomeRecords: income.length,
+              totalExpense: transactions.reduce((sum, t) => sum + t.castka, 0),
+              totalIncome: income.reduce((sum, i) => sum + i.castka, 0)
+            });
 
             // FÁZE 5.0A: Call external Python runtime instead of Node.js baseline
             const runtimeRequest = {
