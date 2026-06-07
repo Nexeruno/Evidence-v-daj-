@@ -1910,6 +1910,9 @@ def predict():
     start_time = time.time()
     data = None
 
+    # FÁZE 6.0D: Container runtime logging
+    logger.info(f'[CONTAINER] Request received: POST /predict from {request.remote_addr}')
+
     try:
         # Step 1: Get and validate JSON format
         data = request.get_json()
@@ -2168,16 +2171,23 @@ def predict():
 
         logger.info(f"[SUCCESS] Prediction completed: uid={uid}, level={pipeline_level}, confidence={prediction['confidence']}, time={processing_time_ms}ms")
 
+        # FÁZE 6.0D: Container runtime logging
+        logger.info(f'[CONTAINER] Response returned: HTTP 200, uid={uid}, status=success, time={processing_time_ms}ms')
+
         return jsonify(response), 200
 
     except Exception as e:
         logger.error(f'[ERROR] Prediction error: {str(e)}', extra={'uid': data.get('uid') if data else None})
         processing_time_ms = int((time.time() - start_time) * 1000)
+        uid = data.get('uid') if data else 'unknown'
+
+        # FÁZE 6.0D: Container runtime error logging
+        logger.error(f'[CONTAINER-ERROR] Runtime error occurred: uid={uid}, error={str(e)}, time={processing_time_ms}ms')
 
         return jsonify({
             'status': 'failed',
             'error': str(e),
-            'uid': data.get('uid') if data else None,
+            'uid': uid,
             'debugMetadata': {'processingTimeMs': processing_time_ms}
         }), 500
 
@@ -2695,14 +2705,26 @@ def internal_error(error):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == '__main__':
-    logger.info(f'Starting ML Runtime Server on port {PORT}')
-    logger.info('Available endpoints:')
-    logger.info('  GET  /health              - Health check')
-    logger.info('  GET  /status              - Runtime status')
-    logger.info('  POST /predict             - ML prediction with feature validation')
-    logger.info('  POST /dataset-info        - Dataset analysis (FÁZE 5.2B)')
-    logger.info('  POST /evaluate            - Offline evaluation (FÁZE 5.3A)')
-    logger.info('  POST /evaluate-summary    - Simple evaluation summary (FÁZE 5.3B)')
+    # FÁZE 6.0D: Container runtime startup logging
+    logger.info('═' * 70)
+    logger.info('[CONTAINER-STARTUP] ML Runtime container initialization starting')
+    logger.info('[CONTAINER-STARTUP] Flask version: 2.3.2')
+    logger.info('[CONTAINER-STARTUP] Python runtime: 3.11')
+    logger.info('[CONTAINER-STARTUP] Environment: production')
+
+    logger.info(f'[CONTAINER-STARTUP] Starting ML Runtime Server on port {PORT}')
+    logger.info('[CONTAINER-STARTUP] Available endpoints:')
+    logger.info('[CONTAINER-STARTUP]   GET  /health              - Health check')
+    logger.info('[CONTAINER-STARTUP]   GET  /status              - Runtime status')
+    logger.info('[CONTAINER-STARTUP]   GET  /readiness           - Readiness check (FÁZA 5.5B)')
+    logger.info('[CONTAINER-STARTUP]   GET  /status-summary      - Status summary (FÁZA 5.5C)')
+    logger.info('[CONTAINER-STARTUP]   POST /predict             - ML prediction with feature validation')
+    logger.info('[CONTAINER-STARTUP]   POST /dataset-info        - Dataset analysis (FÁZA 5.2B)')
+    logger.info('[CONTAINER-STARTUP]   POST /evaluate            - Offline evaluation (FÁZA 5.3A)')
+    logger.info('[CONTAINER-STARTUP]   POST /evaluate-summary    - Simple evaluation summary (FÁZA 5.3B)')
+    logger.info('[CONTAINER-STARTUP] All endpoints ready')
+    logger.info('[CONTAINER-STARTUP] Listening for requests...')
+    logger.info('═' * 70)
 
     app.run(
         host='127.0.0.1',
