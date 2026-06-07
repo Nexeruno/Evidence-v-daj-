@@ -2124,6 +2124,14 @@ exports.runMlPipeline = functions
 
           let prediction;
           try {
+            // FÁZE 5.0E: Structured logging for Python runtime call
+            logger.info({
+              event: 'mlPipeline_pythonRuntime_callStart',
+              uid: user.uid,
+              transactionCount: transactions.length,
+              incomeRecords: income.length,
+            });
+
             // Call Python runtime
             const runtimeResponse = await mlRuntimeClient.callMlRuntime(runtimeRequest);
 
@@ -2140,17 +2148,20 @@ exports.runMlPipeline = functions
             };
 
             logger.info({
-              event: 'mlPipeline_pythonRuntimeCalled',
+              event: 'mlPipeline_pythonRuntime_success',
               uid: user.uid,
-              processingTimeMs: runtimeResponse.debugMetadata?.processingTimeMs || 0,
+              pythonProcessingMs: runtimeResponse.debugMetadata?.processingTimeMs || 0,
+              totalExpense: prediction.totalPredictedExpense,
+              confidence: prediction.confidenceScore,
             });
+
           } catch (runtimeErr) {
             // Fallback to Node.js baseline if Python runtime fails
             logger.warn({
-              event: 'mlPipeline_pythonRuntimeFailed',
+              event: 'mlPipeline_pythonRuntime_failed',
               uid: user.uid,
               error: runtimeErr.message,
-              message: 'Falling back to Node.js baseline',
+              fallback: 'Using Node.js baseline prediction',
             });
             prediction = generateBaselinePrediction(transactions, income);
           }

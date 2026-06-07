@@ -58,27 +58,42 @@ async function checkMlRuntimeHealth() {
 
 /**
  * Send prediction request to external Python runtime
+ * FÁZE 5.0E: With structured logging for external Python call flow
+ *
  * @param {Object} requestData - ML request payload
  * @returns {Promise<Object>} - Prediction response from Python
  */
 async function callMlRuntime(requestData) {
-  // Validate request contract
+  const uid = requestData.uid;
+  const pipelineLevel = requestData.pipelineLevel;
+  const callStartTime = Date.now();
+
+  // ─────────────────────────────────────────────────────────────
+  // STAGE 1: VALIDATE REQUEST CONTRACT
+  // ─────────────────────────────────────────────────────────────
+
   const requiredFields = ['uid', 'pipelineLevel', 'modelVersion'];
   for (const field of requiredFields) {
     if (!requestData[field]) {
+      console.error(`[ML] ❌ REQUEST VALIDATION FAILED: ${field} | uid=${uid}`);
       throw new Error(`Missing required field: ${field}`);
     }
   }
 
-  // Log request (debug)
-  console.log(`[ML Runtime Request] uid=${requestData.uid}, pipeline=${requestData.pipelineLevel}`);
+  console.log(
+    `[ML] ✅ REQUEST VALIDATED | uid=${uid}, pipeline=${pipelineLevel}, txns=${requestData.transactions?.length || 0}`
+  );
 
   try {
-    // Create abort controller for timeout
+    // ─────────────────────────────────────────────────────────────
+    // STAGE 2: SEND REQUEST
+    // ─────────────────────────────────────────────────────────────
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), PREDICT_TIMEOUT);
 
-    // Call Python endpoint
+    console.log(`[ML] 📤 REQUEST SENT | url=${ML_RUNTIME_URL}/predict | uid=${uid}`);
+
     const response = await fetch(`${ML_RUNTIME_URL}/predict`, {
       method: 'POST',
       signal: controller.signal,
@@ -91,37 +106,77 @@ async function callMlRuntime(requestData) {
 
     clearTimeout(timeoutId);
 
-    // Parse response
+    const httpStatus = response.status;
+    const elapsedMs = Date.now() - callStartTime;
+
+    // ─────────────────────────────────────────────────────────────
+    // STAGE 3: RECEIVE RESPONSE
+    // ─────────────────────────────────────────────────────────────
+
     const data = await response.json();
 
+    console.log(
+      `[ML] 📥 RESPONSE RECEIVED | status=${httpStatus}, elapsed=${elapsedMs}ms | uid=${uid}`
+    );
+
     if (!response.ok) {
-      console.error(`ML Runtime request failed: ${response.status} - ${data.error}`);
-      throw new Error(data.error || `HTTP ${response.status}`);
+      console.error(
+        `[ML] ❌ HTTP ERROR | status=${httpStatus}, error=${data.error} | uid=${uid}`
+      );
+      throw new Error(data.error || `HTTP ${httpStatus}`);
     }
 
-    // Validate response contract
+    // ─────────────────────────────────────────────────────────────
+    // STAGE 4: VALIDATE RESPONSE CONTRACT
+    // ─────────────────────────────────────────────────────────────
+
     if (data.status !== 'success') {
+      console.error(
+        `[ML] ❌ RESPONSE VALIDATION FAILED: status=${data.status} | uid=${uid}`
+      );
       throw new Error(data.error || 'Prediction failed');
     }
 
     if (!data.predictions || !Array.isArray(data.predictions)) {
+      console.error(
+        `[ML] ❌ RESPONSE VALIDATION FAILED: missing predictions | uid=${uid}`
+      );
       throw new Error('Invalid response: missing predictions array');
     }
 
-    // Log successful response (debug)
+    // ─────────────────────────────────────────────────────────────
+    // STAGE 5: SUCCESS
+    // ─────────────────────────────────────────────────────────────
+
     const confidence = data.predictions[0]?.confidence || 0;
-    const processingTime = data.debugMetadata?.processingTimeMs || 0;
+    const processingTimeMs = data.debugMetadata?.processingTimeMs || 0;
+    const totalTimeMs = Date.now() - callStartTime;
+
     console.log(
-      `[ML Runtime Response] uid=${data.uid}, status=${data.status}, confidence=${confidence}, time=${processingTime}ms`
+      `[ML] ✅ SUCCESS | uid=${uid}, confidence=${confidence}, python_time=${processingTimeMs}ms, total_time=${totalTimeMs}ms`
     );
 
     return data;
+
   } catch (error) {
+    // ─────────────────────────────────────────────────────────────
+    // ERROR HANDLING
+    // ─────────────────────────────────────────────────────────────
+
+    const elapsedMs = Date.now() - callStartTime;
+
     if (error.name === 'AbortError') {
-      console.error(`ML Runtime request timeout (${PREDICT_TIMEOUT}ms)`);
+      console.error(
+        `[ML] ❌ TIMEOUT | timeout=${PREDICT_TIMEOUT}ms, elapsed=${elapsedMs}ms | uid=${uid}`
+      );
       throw new Error('ML Runtime request timeout');
     }
-    console.error(`ML Runtime request error: ${error.message}`);
+
+    const errorMsg = error.message || 'Unknown error';
+    console.error(
+      `[ML] ❌ ERROR | error=${errorMsg}, elapsed=${elapsedMs}ms | uid=${uid}`
+    );
+
     throw error;
   }
 }
