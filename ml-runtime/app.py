@@ -732,7 +732,57 @@ class EvaluationSummary:
     """
     FÁZE 5.3B: Simple evaluation summary for deterministic predictions
     Calculates basic statistics about predictions and data quality
+    FÁZE 5.3D: Analyze failure reasons and provide debug summary
     """
+
+    @staticmethod
+    def analyze_failure_reasons(transactions: List[Dict]) -> Dict:
+        """
+        FÁZE 5.3D: Analyze why rows failed and return top failure reasons
+        Returns: {reason: count, ...} ordered by count descending
+        """
+        failure_reasons = {}
+
+        for idx, tx in enumerate(transactions):
+            if not isinstance(tx, dict):
+                reason = "not_a_dict"
+                failure_reasons[reason] = failure_reasons.get(reason, 0) + 1
+                continue
+
+            # Check each required field
+            has_category = 'category' in tx and isinstance(tx.get('category'), str) and tx.get('category').strip()
+            has_amount = 'amount' in tx and isinstance(tx.get('amount'), (int, float))
+            has_date = 'date' in tx and isinstance(tx.get('date'), str) and tx.get('date').strip()
+
+            # Determine failure reason
+            if not has_category:
+                if 'category' not in tx:
+                    reason = "missing_category"
+                elif not isinstance(tx.get('category'), str):
+                    reason = "invalid_category_type"
+                else:
+                    reason = "empty_category"
+                failure_reasons[reason] = failure_reasons.get(reason, 0) + 1
+            elif not has_amount:
+                if 'amount' not in tx:
+                    reason = "missing_amount"
+                elif not isinstance(tx.get('amount'), (int, float)):
+                    reason = "invalid_amount_type"
+                else:
+                    reason = "negative_amount"
+                failure_reasons[reason] = failure_reasons.get(reason, 0) + 1
+            elif not has_date:
+                if 'date' not in tx:
+                    reason = "missing_date"
+                elif not isinstance(tx.get('date'), str):
+                    reason = "invalid_date_type"
+                else:
+                    reason = "empty_date"
+                failure_reasons[reason] = failure_reasons.get(reason, 0) + 1
+
+        # Sort by count descending, limit to top 5
+        sorted_reasons = sorted(failure_reasons.items(), key=lambda x: x[1], reverse=True)[:5]
+        return dict(sorted_reasons)
 
     @staticmethod
     def calculate_summary(
@@ -761,6 +811,11 @@ class EvaluationSummary:
         usable_output_rows = valid_rows  # Rows with successful prediction
         error_rows = failed_rows          # Rows with validation/computation error
 
+        # FÁZE 5.3D: Analyze failure reasons
+        failure_reasons = {}
+        if error_rows > 0:
+            failure_reasons = EvaluationSummary.analyze_failure_reasons(transactions)
+
         return {
             'summary': {
                 'total_row_count': total_rows,
@@ -774,6 +829,11 @@ class EvaluationSummary:
                 'error_rows': error_rows,
                 'success_rate': round(usable_output_rows / total_rows * 100, 1) if total_rows > 0 else 0,
                 'error_rate': round(error_rows / total_rows * 100, 1) if total_rows > 0 else 0,
+            },
+            # FÁZE 5.3D: Top failure reasons for debugging
+            'debug_summary': {
+                'top_failure_reasons': failure_reasons,
+                'failure_reason_count': len(failure_reasons),
             },
             'confidence': {
                 'average_confidence': round(confidence, 2) if confidence else 0,
