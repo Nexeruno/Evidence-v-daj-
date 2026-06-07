@@ -11,16 +11,34 @@
 
 const fetch = require('node-fetch');
 
-// Configuration
-const ML_RUNTIME_URL = process.env.ML_RUNTIME_URL || 'http://127.0.0.1:5000';
+// ═══════════════════════════════════════════════════════════════════════════════
+// FÁZA 6.1C: Configuration — Host, Port, Enable Flag
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Runtime Location (configurable via environment variables)
+const ML_RUNTIME_HOST = process.env.ML_RUNTIME_HOST || '127.0.0.1';
+const ML_RUNTIME_PORT = process.env.ML_RUNTIME_PORT || '5000';
+const ML_RUNTIME_ENABLED = process.env.ML_RUNTIME_ENABLED !== 'false'; // Default: true
+
+// Backward compatible URL construction
+const ML_RUNTIME_URL = process.env.ML_RUNTIME_URL || `http://${ML_RUNTIME_HOST}:${ML_RUNTIME_PORT}`;
+
+// Timeouts
 const HEALTH_CHECK_TIMEOUT = 5000; // 5 seconds
 const PREDICT_TIMEOUT = 30000; // 30 seconds
 
 /**
  * Verify ML runtime is available
+ * FÁZA 6.1C: Checks if runtime is enabled before attempting connection
  * @returns {Promise<boolean>}
  */
 async function checkMlRuntimeHealth() {
+  // FÁZA 6.1C: Return false if runtime disabled
+  if (!ML_RUNTIME_ENABLED) {
+    console.log(`⚠️ ML Runtime disabled (ML_RUNTIME_ENABLED=${ML_RUNTIME_ENABLED})`);
+    return false;
+  }
+
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT);
@@ -70,6 +88,39 @@ async function callMlRuntime(requestData, options = {}) {
   const pipelineLevel = requestData.pipelineLevel;
   const callStartTime = Date.now();
   const allowFallback = options.allowFallback !== false; // Default: allow fallback
+
+  // ─────────────────────────────────────────────────────────────
+  // FÁZA 6.1C: CHECK RUNTIME ENABLED
+  // ─────────────────────────────────────────────────────────────
+
+  if (!ML_RUNTIME_ENABLED) {
+    console.warn(`[ML] ⚠️ DISABLED | ML_RUNTIME_ENABLED=false | uid=${uid}`);
+    const elapsedMs = Date.now() - callStartTime;
+    if (allowFallback) {
+      return {
+        status: 'fallback',
+        uid: uid,
+        reason: 'runtime_disabled',
+        message: 'ML Runtime is disabled',
+        fallback: {
+          predictedExpense: null,
+          confidence: 0.0,
+          confidenceFactors: {
+            dataFrequency: 0,
+            transactionCount: 0,
+            expenseRatio: 0,
+            incomeConstraint: 0
+          }
+        },
+        debugMetadata: {
+          processingTimeMs: elapsedMs,
+          fallbackReason: 'runtime_disabled',
+          timestamp: new Date().toISOString()
+        }
+      };
+    }
+    throw new Error('ML Runtime is disabled');
+  }
 
   // ─────────────────────────────────────────────────────────────
   // STAGE 1: VALIDATE REQUEST CONTRACT
@@ -451,5 +502,8 @@ module.exports = {
   callEvaluateSummary,
   checkMlRuntimeHealth,
   getMlRuntimeStatus,
-  ML_RUNTIME_URL
+  ML_RUNTIME_URL,
+  ML_RUNTIME_HOST,
+  ML_RUNTIME_PORT,
+  ML_RUNTIME_ENABLED
 };
