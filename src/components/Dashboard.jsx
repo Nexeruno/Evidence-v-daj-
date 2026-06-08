@@ -132,7 +132,13 @@ export const Dashboard = () => {
 
   const totalVydaje = filteredVydaje.reduce((sum, item) => sum + Number(item.castka || 0), 0);
   const totalPrijmy = filteredPrijmy.reduce((sum, item) => sum + Number(item.castka || 0), 0);
-  const zustatek = totalPrijmy - totalVydaje;
+
+  // Zůstatek se počítá z celého měsíce — kategorie filtr ho nemá ovlivňovat
+  const mesicVydaje = filterItems(vydaje, 'vse', mesic);
+  const mesicPrijmy = filterItems(prijmy, 'vse-prijem', mesic);
+  const zustatek =
+    mesicPrijmy.reduce((s, i) => s + Number(i.castka || 0), 0) -
+    mesicVydaje.reduce((s, i) => s + Number(i.castka || 0), 0);
 
   const { pieData, barData } = useMemo(() => {
     const categoryData = {};
