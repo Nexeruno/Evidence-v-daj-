@@ -8,7 +8,7 @@
     "build": "vite build && electron-builder",
     "preview": "vite preview",
     "start": "electron .",
-    "electron-dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron-dev": "concurrently \"vite --port 5173 --strictPort\" \"wait-on http://localhost:5173 && electron .\"",
     "lint": "echo 'Linting disabled - use TypeScript type-check instead'",
     "type-check": "tsc --noEmit"
   },
