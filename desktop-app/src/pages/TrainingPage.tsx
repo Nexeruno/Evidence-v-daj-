@@ -919,14 +919,6 @@ export function TrainingPage() {
         })()}
       </div>
 
-      {/* Info Box */}
-      <div className="bg-blue-50 rounded-lg p-6 border border-blue-200">
-        <p className="text-blue-900">
-          <span className="font-semibold">{SYMBOLS.INFO} Note:</span> Training data is used to improve AI/ML
-          models over time. The more examples you provide, the better the system becomes. All records
-          require admin approval before being used in training.
-        </p>
-      </div>
     </div>
   )
 }

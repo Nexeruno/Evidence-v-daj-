@@ -406,9 +406,6 @@ export function MlControlPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold text-light-text dark:text-dark-text">ML Model Control</h1>
-        <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-          {SYMBOLS.WARNING} Current L2: <strong>simplified baseline with manual/auto calibration</strong> — Real Python ML model is not active yet.
-        </p>
       </div>
 
       {/* Status message */}

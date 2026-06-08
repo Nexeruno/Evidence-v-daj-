@@ -588,15 +588,6 @@ export function MlPredictionsPage() {
         </div>
       )}
 
-      {selectedLevel === 2 && (
-        <div className="card rounded-lg p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
-          <p className="text-sm text-blue-700 dark:text-blue-300">
-            💡 <strong>L2 Shadow Mode:</strong> These are simplified baseline predictions with optional manual calibration. Not actual Python ML model.
-            {isAdmin && ' Admin can add feedback to improve predictions.'}
-          </p>
-        </div>
-      )}
-
       {/* Training Feedback Modal */}
       {selectedPredictionForFeedback && (
         <L2TrainingFeedbackModal

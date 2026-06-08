@@ -750,18 +750,6 @@ export function AiProfilesPage() {
         )
       })()}
 
-      {/* Info card */}
-      <div className="bg-blue-50 dark:bg-blue-950/20 rounded-lg p-5 border border-blue-200 dark:border-blue-800">
-        <p className="text-sm font-semibold text-blue-700 dark:text-blue-300 mb-2">About AI Profiles</p>
-        <ul className="text-sm text-blue-700 dark:text-blue-300 space-y-1 list-disc list-inside">
-          <li>Per-user feature layer: 18 features extracted from transactions + feedback history</li>
-          <li>Stored at <code className="text-xs bg-blue-100 dark:bg-blue-900 px-1 rounded">users/{'{uid}'}/aiProfile/summary</code></li>
-          <li>Confidence score reflects data quality and feedback volume (60 base + 10 per feedback record)</li>
-          <li>Correction factors show how manual/auto feedback has adjusted L2 baseline</li>
-          <li><strong>Not yet used in live L2 predictions</strong> — L2 still uses simplified baseline</li>
-          <li>Will power real personalized ML model when Python pipeline is integrated</li>
-        </ul>
-      </div>
     </div>
   )
 }

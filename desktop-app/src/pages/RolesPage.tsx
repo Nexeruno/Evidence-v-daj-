@@ -154,13 +154,6 @@ export function RolesPage() {
         )}
       </div>
 
-      {/* Role Assignment Info */}
-      <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-6 border border-blue-200 dark:border-blue-700">
-        <p className="text-blue-900 dark:text-blue-200">
-          <span className="font-semibold">ℹ️ Note:</span> System roles (admin, analyst, viewer) cannot be edited.
-          Create custom roles for organization-specific permissions.
-        </p>
-      </div>
     </div>
   )
 }

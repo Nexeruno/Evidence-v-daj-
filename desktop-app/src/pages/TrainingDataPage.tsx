@@ -457,19 +457,6 @@ export function TrainingDataPage() {
         </div>
       )}
 
-      {/* Data Source Info */}
-      <div className="card rounded-lg p-4 bg-blue-50 dark:bg-blue-950/30 border border-blue-300 dark:border-blue-700">
-        <p className="text-xs text-blue-700 dark:text-blue-300">
-          📡 <strong>Data Sources:</strong> Reading from Firestore project <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">evidence-vydaju</code>
-          <br/>
-          Raw data (wydaje/prijmy) and L2 Predictions are filtered by selected user.
-          <br/>
-          {SYMBOLS.INFO} <strong>Training Feedback is GLOBAL</strong> - same for all users, independent of user selection.
-          <br/>
-          📌 <strong>Note:</strong> L2 is simplified baseline with manual/auto calibration. Not actual Python ML model yet.
-        </p>
-      </div>
-
       {/* Statistics Dashboard */}
       {!loading && (
         <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3">

@@ -950,13 +950,6 @@ export function AiObservabilityPage() {
         )}
       </div>
 
-      {/* Footer Info */}
-      <div className="p-4 rounded-lg bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-700">
-        <p className="text-sm text-gray-700 dark:text-gray-300">
-          {SYMBOLS.INFO} <strong>FÁZE 4.6E Status:</strong> Click on any run to view detailed information.
-        </p>
-      </div>
-
       {/* Run Detail Modal */}
       <RunDetailModal
         run={selectedRun}

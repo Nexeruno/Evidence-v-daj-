@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 import { usePredictionSettings } from '@/hooks/useMlPipelineControl'
 import { useMlRuns } from '@/hooks/useFirestore'
@@ -8,8 +8,6 @@ export function MlDashboardPage() {
   const location = useLocation()
   const { settings, loading: settingsLoading, error: settingsError, reload: reloadSettings } = usePredictionSettings()
   const { data: recentRuns, loading: runsLoading, error: runsError } = useMlRuns(10)
-  const [debugOpen, setDebugOpen] = useState(false)
-
   useEffect(() => {
     if (location.pathname === '/ml/dashboard') {
       reloadSettings()
@@ -232,30 +230,6 @@ export function MlDashboardPage() {
         </div>
       </div>
 
-      {/* Debug box */}
-      <div className="card rounded-lg p-4 bg-slate-100 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700">
-        <button
-          type="button"
-          onClick={() => setDebugOpen(v => !v)}
-          className="font-mono text-xs text-slate-700 dark:text-slate-300 select-none w-full text-left"
-        >
-          {debugOpen ? '▾' : '▸'} Debug: ML Dashboard Settings
-        </button>
-        {debugOpen && (
-          <pre className="mt-2 text-xs bg-slate-900 text-slate-100 p-3 rounded overflow-auto max-h-64">
-{JSON.stringify({
-  predictionSettings: settings,
-  derivedState: { l1Status, l2Status, shadowModeOn, isL2Active, isL2Shadow, productionModel },
-  settingsLoading,
-  settingsError: settingsError ?? null,
-  runsLoading,
-  runsError: runsError?.message ?? null,
-  runsCount: recentRuns.length,
-  firstRun: recentRuns[0] ?? null,
-}, null, 2)}
-          </pre>
-        )}
-      </div>
     </div>
   )
 }
