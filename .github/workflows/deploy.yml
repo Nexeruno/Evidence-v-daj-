@@ -93,14 +93,14 @@ jobs:
         run: |
           echo "▶️ Running smoke tests on local build..."
 
-          # Check if docs/index.html exists and is not empty
-          if [ ! -f "docs/index.html" ]; then
-            echo "❌ Build artifact not found: docs/index.html"
+          # Check if dist/index.html exists and is not empty
+          if [ ! -f "dist/index.html" ]; then
+            echo "❌ Build artifact not found: dist/index.html"
             exit 1
           fi
 
           echo "📄 Checking HTML structure..."
-          if grep -q 'id="root"' docs/index.html; then
+          if grep -q 'id="root"' dist/index.html; then
             echo "✅ Root div found in HTML"
           else
             echo "❌ Root div not found in HTML"
@@ -108,7 +108,7 @@ jobs:
           fi
 
           # Verify HTML is valid (basic check)
-          if grep -q '<html' docs/index.html && grep -q '</html>' docs/index.html; then
+          if grep -q '<html' dist/index.html && grep -q '</html>' dist/index.html; then
             echo "✅ HTML structure looks valid"
           else
             echo "❌ HTML structure incomplete"
@@ -116,10 +116,10 @@ jobs:
           fi
 
           # Check build size
-          BUILD_SIZE=$(du -sh docs | cut -f1)
+          BUILD_SIZE=$(du -sh dist | cut -f1)
           echo "📦 Build size: $BUILD_SIZE"
 
-          if [ $(find docs -name '*.js' -o -name '*.css' | wc -l) -gt 0 ]; then
+          if [ $(find dist -name '*.js' -o -name '*.css' | wc -l) -gt 0 ]; then
             echo "✅ Assets generated successfully"
           else
             echo "❌ No assets found in build"
@@ -132,7 +132,7 @@ jobs:
         id: upload-pages
         uses: actions/upload-pages-artifact@v3
         with:
-          path: 'docs'
+          path: 'dist'
 
       - name: 🚀 Deploy to GitHub Pages
         id: deploy-pages

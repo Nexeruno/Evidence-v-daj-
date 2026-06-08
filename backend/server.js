@@ -9,8 +9,6 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const fetch = require('node-fetch');
-
 // Import ML Runtime client
 const mlRuntimeClient = require('../functions/mlRuntimeClient');
 
