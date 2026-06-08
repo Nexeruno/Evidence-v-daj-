@@ -103,7 +103,7 @@ $images = podman images --format "{{.Repository}}" 2>$null
 
 if ($images -notcontains "evidence-vydaju-ml-runtime") {
     Write-Host "      Building ml-runtime image (first run ~1min)..." -ForegroundColor Yellow
-    podman build -t evidence-vydaju-ml-runtime -f ml-runtime/Containerfile .
+    podman build -t evidence-vydaju-ml-runtime ml-runtime/
     if ($LASTEXITCODE -ne 0) {
         Write-Err "Build failed: ml-runtime"
         Read-Host "Press Enter to exit"

@@ -57,8 +57,7 @@ services:
   # Python ML Runtime Service (FÁZA 6.0A + 6.2C)
   ml-runtime:
     build:
-      context: .
-      dockerfile: ml-runtime/Containerfile
+      context: ml-runtime
     env_file:
       - .env.docker-compose
     container_name: ${ML_RUNTIME_SERVICE:-ml-runtime}
