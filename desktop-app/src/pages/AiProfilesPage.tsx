@@ -274,14 +274,6 @@ export function AiProfilesPage() {
       {/* A. Header */}
       <div>
         <h1 className="text-3xl font-bold text-light-text dark:text-dark-text">AI Profiles</h1>
-        <div className="mt-2 space-y-1">
-          <p className="text-xs text-blue-600 dark:text-blue-400">
-            🧠 Per-user AI profile / feature layer — prepares data for future personalized ML.
-          </p>
-          <p className="text-xs text-amber-600 dark:text-amber-400">
-            ⚠️ Current L2 prediction engine is still simplified baseline. Profiles do not yet affect live predictions.
-          </p>
-        </div>
       </div>
 
       {/* Status message */}
