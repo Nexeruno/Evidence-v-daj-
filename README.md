@@ -204,3 +204,11 @@ Invoke-WebRequest http://localhost:3000/status/dependencies -UseBasicParsing
 - Portfolio guide: `docs/PORTFOLIO_GUIDE.md`
 - Setup guides: `docs/guides/`
 - Phase and audit reports: `docs/reports/`
+
+---
+
+## About
+
+This project was built by **Daniel Řezáč** using an AI-assisted development workflow. The architecture, feature decisions, and direction were driven by the author — Claude (Anthropic) was used as the implementation assistant throughout the process, writing code based on the author's instructions and requirements.
+
+All technical choices, scope definitions, and product decisions were made by the author.
