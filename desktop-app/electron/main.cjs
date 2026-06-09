@@ -6,10 +6,11 @@ const path = require("path");
 const VITE_PORT = process.env.VITE_PORT || "5173";
 
 // Firebase project id used to build Cloud Function URLs.
-// Supplied via environment (same value as the renderer's VITE_FIREBASE_PROJECT_ID);
-// falls back to a placeholder when not configured.
+// The Electron main process is plain Node and does NOT receive Vite's import.meta.env,
+// so it can be overridden via process env; otherwise it falls back to the project's
+// public Firebase project id (same value committed in .firebaserc and index.html CSP).
 const FIREBASE_PROJECT_ID =
-  process.env.VITE_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID || "your-project-id";
+  process.env.VITE_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID || "evidence-vydaju";
 
 function createWindow() {
   const win = new BrowserWindow({
